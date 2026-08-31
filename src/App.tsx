@@ -1,99 +1,133 @@
-import { useState } from 'react';
-import { zipSync } from 'fflate';
+import { useCallback, useMemo, useState } from 'react';
+import { Controls } from './components/Controls';
 import { DropZone } from './components/DropZone';
-import { poolSize, runAll } from './lib/pool';
+import { Results } from './components/Results';
+import { buildZip, download } from './lib/emit';
 import { bytes, reduction } from './lib/format';
+import { newRow, optimizeAssets, summarise, type Row } from './lib/optimize';
+import { poolSize } from './lib/pool';
+import { DEFAULTS, type ImageSettings } from './lib/settings';
 import type { Asset } from './lib/types';
-import type { Inspection } from './workers/inspect.worker';
-
-type Row = { asset: Asset; info: Inspection };
 
 export default function App() {
   const [rows, setRows] = useState<Row[]>([]);
-  const [status, setStatus] = useState('');
+  const [settings, setSettings] = useState<ImageSettings>(DEFAULTS);
+  const [running, setRunning] = useState(false);
+  const [ran, setRan] = useState(false);
+  const [note, setNote] = useState('');
 
-  async function handle(assets: Asset[]) {
+  const imageCount = rows.filter((r) => r.asset.kind === 'image').length;
+  const report = useMemo(() => summarise(rows), [rows]);
+
+  const accept = useCallback((assets: Asset[]) => {
     if (assets.length === 0) {
-      setStatus('No readable files in that drop.');
+      setNote('Nothing readable in that drop.');
       return;
     }
-    setStatus(`Inspecting ${assets.length} files across ${poolSize} workers…`);
+    setNote('');
+    setRan(false);
+    setRows(assets.map(newRow));
+  }, []);
 
-    const infos = await runAll(assets, (asset, api) =>
-      api.inspect(asset.bytes, asset.mime, asset.kind, () => {}),
-    );
+  async function optimize() {
+    setRunning(true);
+    setNote('');
+    // Patch rows in place as workers report in, so progress is visible per file.
+    const update = (index: number, patch: Partial<Row>) =>
+      setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
 
-    setRows(assets.map((asset, i) => ({ asset, info: infos[i]! })));
-    setStatus('');
+    try {
+      const done = await optimizeAssets(
+        rows.map((r) => r.asset),
+        settings,
+        update,
+      );
+      setRows(done);
+      setRan(true);
+    } finally {
+      setRunning(false);
+    }
   }
 
-  function download() {
-    const files: Record<string, Uint8Array> = {};
-    for (const { asset } of rows) files[asset.path] = asset.bytes;
-    const blob = new Blob([zipSync(files) as BufferSource], { type: 'application/zip' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'pare-output.zip';
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  const raw = rows.reduce((n, r) => n + r.info.rawBytes, 0);
-  const gz = rows.reduce((n, r) => n + r.info.gzipBytes, 0);
+  const cut = reduction(report.bytesBefore, report.bytesServed);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
+    <main className="mx-auto max-w-4xl px-6 py-16">
       <header className="mb-12">
         <h1 className="text-3xl">Pare</h1>
         <p className="mt-2 max-w-prose text-muted">
-          Compress and convert your site&rsquo;s assets without installing anything.
-          Files are read in this tab and never sent anywhere.
+          Shrink your images and get the markup to use them. Files are read in this
+          tab and never sent anywhere &mdash; there is no server to send them to.
         </p>
       </header>
 
-      <DropZone onAssets={handle} />
+      <DropZone onAssets={accept} />
 
-      {status && <p className="mt-6 text-sm text-muted">{status}</p>}
+      {note && <p className="mt-6 text-sm text-warn">{note}</p>}
 
       {rows.length > 0 && (
-        <section className="mt-12">
-          <div className="flex items-baseline justify-between border-b border-rule pb-3">
-            <h2>
-              {rows.length} files ·{' '}
-              <span className="tnum">{bytes(raw)}</span>
-            </h2>
-            <p className="text-sm text-muted">
-              <span className="tnum">{bytes(gz)}</span> gzipped ·{' '}
-              <span className="text-saved tnum">{reduction(raw, gz)}% smaller</span>
-            </p>
+        <>
+          <Controls settings={settings} onChange={setSettings} disabled={running} />
+
+          <div className="mt-8 flex flex-wrap items-center gap-4">
+            <button
+              onClick={() => void optimize()}
+              disabled={running || imageCount === 0}
+              className="border border-ink px-5 py-2 text-sm hover:bg-ink hover:text-paper disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink"
+            >
+              {running
+                ? 'Working…'
+                : 'Optimize ' + imageCount + (imageCount === 1 ? ' image' : ' images')}
+            </button>
+            <span className="text-xs text-muted">
+              {rows.length} files &middot; {poolSize} worker{poolSize === 1 ? '' : 's'}
+              {rows.length > imageCount &&
+                ' · ' + (rows.length - imageCount) + ' non-image files copied unchanged'}
+            </span>
           </div>
 
-          <table className="mt-4 w-full text-sm">
-            <tbody>
-              {rows.map(({ asset, info }) => (
-                <tr key={asset.path} className="border-b border-rule/60">
-                  <td className="py-2 pr-4 font-mono text-xs">{asset.path}</td>
-                  <td className="py-2 pr-4 text-muted">{asset.kind}</td>
-                  <td className="py-2 pr-4 text-muted tnum">
-                    {info.width ? `${info.width}×${info.height}` : ''}
-                  </td>
-                  <td className="py-2 text-right tnum">{bytes(info.rawBytes)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {ran && (
+            <section className="mt-10 border border-rule p-5" aria-label="Savings">
+              <p className="text-2xl">
+                <span className="tnum">{bytes(report.bytesBefore)}</span>
+                <span className="text-muted"> &rarr; </span>
+                <span className="tnum">{bytes(report.bytesServed)}</span>
+                {cut > 0 && <span className="text-saved"> &middot; {cut}% smaller</span>}
+              </p>
+              <p className="mt-2 max-w-prose text-sm text-muted">
+                Measured at full size, using the smallest format each browser can
+                read. Smaller screens fetch a smaller file again. The download holds{' '}
+                <span className="tnum">{bytes(report.bytesEmitted)}</span> across every
+                width and format &mdash; a visitor only ever downloads one of them.
+              </p>
+              {report.skipped > 0 && (
+                <p className="mt-2 text-sm text-warn">
+                  {report.skipped} file{report.skipped === 1 ? ' was' : 's were'} left
+                  unchanged. The reason is on the row.
+                </p>
+              )}
+              {report.metadataRemoved > 0 && (
+                <p className="mt-2 text-sm text-muted">
+                  <span className="tnum">{bytes(report.metadataRemoved)}</span> of camera
+                  metadata removed from files kept in their original form.
+                </p>
+              )}
 
-          <button
-            onClick={download}
-            className="mt-8 border border-ink px-4 py-2 text-sm hover:bg-ink hover:text-paper"
-          >
-            Download as zip
-          </button>
-          <p className="mt-3 text-xs text-muted">
-            Phase 0: files are passed through unchanged. Optimizers land in Phase 1.
-          </p>
-        </section>
+              <button
+                onClick={() => download(buildZip(rows), 'pare-output.zip')}
+                className="mt-5 border border-ink px-5 py-2 text-sm hover:bg-ink hover:text-paper"
+              >
+                Download zip
+              </button>
+              <p className="mt-3 text-xs text-muted">
+                Includes <code className="font-mono">snippets.html</code> with every
+                generated tag. Your original files are untouched.
+              </p>
+            </section>
+          )}
+
+          <Results rows={rows} />
+        </>
       )}
     </main>
   );

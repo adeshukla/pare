@@ -1,0 +1,11 @@
+# Cloudflare Pages headers.
+#
+# COOP + COEP turn on SharedArrayBuffer, which lets the OxiPNG and AVIF encoders
+# use their multi-threaded builds instead of falling back to a single core.
+# Safe here because Pare loads nothing cross-origin - there is no server, no CDN
+# script and no third-party asset to be blocked.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer

@@ -6,6 +6,8 @@
  * fail a run.
  */
 
+import type { OutputFormat } from './settings';
+
 export type AssetKind =
   | 'image'
   | 'font'
@@ -90,3 +92,36 @@ export function passthrough(asset: Asset, optimizer: string, reason: string): Re
     skipped: reason,
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Phase 1 - image pipeline
+ * ------------------------------------------------------------------ */
+
+/** One encoded file: a single width in a single format. */
+export type Variant = {
+  format: OutputFormat;
+  mime: string;
+  width: number;
+  height: number;
+  path: string;
+  bytes: Uint8Array;
+};
+
+/**
+ * What the worker hands back for one image. There is no error branch, per the
+ * `Result` contract above: a run that produced nothing comes back with `variants`
+ * empty and a `skipped` reason a non-technical reader can act on.
+ */
+export type ImageOutcome = {
+  inputPath: string;
+  bytesBefore: number;
+  naturalWidth: number;
+  naturalHeight: number;
+  variants: Variant[];
+  /** ThumbHash data URI, when enabled and the image decoded. */
+  placeholder?: string;
+  /** Bytes saved on the passthrough copy by dropping EXIF and friends. */
+  metadataRemoved: number;
+  warnings: string[];
+  skipped?: string;
+};

@@ -1,4 +1,33 @@
+# dependencies and build output
 node_modules
 dist
+dist-ssr
+
+# test and coverage output
+coverage
+playwright-report
+test-results
+blob-report
+.playwright
+
+# tool caches
+.vite
+*.tsbuildinfo
+
+# secrets - Pare has no server, but a Cloudflare deploy token is still a token
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler
+
+# editors and OS
 .DS_Store
+Thumbs.db
+.idea
+*.swp
+
+# local overrides
 *.local
+*.log
+npm-debug.log*

@@ -5,7 +5,7 @@ Each phase is independently launchable — there is never a half-finished produc
 
 ---
 
-## Phase 0 — Skeleton
+## Phase 0 — Skeleton ✅ **complete**
 **~2 days**
 
 - Vite + TS + React + Tailwind v4
@@ -15,11 +15,13 @@ Each phase is independently launchable — there is never a half-finished produc
 - fflate zip output
 - Deploy to Cloudflare Pages, `pare.devstash.me`
 
-**Exit:** drop files, see them listed, download an unmodified zip.
+**Exit:** drop files, see them listed, download an unmodified zip. — met.
+Deployment to Cloudflare Pages is wired in CI and waiting on account secrets;
+see `docs/STATUS.md`.
 
 ---
 
-## Phase 1 — Images ⭐ **public launch**
+## Phase 1 — Images ⭐ **public launch** ✅ **feature-complete, not yet deployed**
 **~1.5 weeks**
 
 - `@jsquash` decode: JPEG, PNG, WebP, AVIF, GIF first frame
@@ -35,7 +37,8 @@ Each phase is independently launchable — there is never a half-finished produc
 without reading instructions.
 
 **Launch:** Show HN, r/webdev, Product Hunt. The before/after savings screenshot
-is the post.
+is the post. Measure it on real photographs — the committed fixtures are
+synthetic and flatter the encoder badly. See `docs/STATUS.md`.
 
 ---
 

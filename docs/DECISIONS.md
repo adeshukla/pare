@@ -127,3 +127,122 @@ break a page.
 No rewriting operation ships without it.
 
 **Open question.** Cross-origin iframe rendering of local blobs — needs a spike.
+
+---
+
+## ADR-007 — Decode with the browser, encode with WASM
+
+**Status:** accepted
+
+**Context.** `docs/ARCHITECTURE.md` assigns every image codec slot to `@jsquash`.
+Phase 1 implementation surfaced that this is the right answer for encoding and the
+wrong one for decoding.
+
+**Decision.** Decode with `createImageBitmap` + `OffscreenCanvas`, falling back to
+the `@jsquash` decoders when the browser refuses. Encode exclusively with
+`@jsquash` — AVIF, WebP, MozJPEG, OxiPNG.
+
+**Reasoning.**
+- AGENTS.md already says to prefer a native browser API where one exists. The
+  browser decodes every format Phase 1 accepts, including the first frame of an
+  animated GIF, for zero bytes of payload. The `avif_dec` module alone is 344 KB
+  gzipped that most users would never need.
+- `imageOrientation: 'from-image'` bakes EXIF rotation into the pixels during
+  decode. That is what makes it safe to drop EXIF afterwards — see ADR-008.
+- Encoding is the opposite case. Canvas `convertToBlob` gives no quality control
+  worth the name, no AVIF support to rely on, and no MozJPEG or OxiPNG at all.
+- Keeping the WASM decoders as a fallback means AVIF and WebP sources still work
+  on a browser that cannot read them natively, at the cost of a lazy chunk that is
+  only fetched when native decode has already failed.
+
+**Consequence.** Two decode paths to keep working. The Playwright suite exercises
+the native path; the fallback is only reachable on browsers we cannot run in CI,
+so it is structurally simple on purpose.
+
+---
+
+## ADR-008 — Strip identity metadata, keep rendering metadata
+
+**Status:** accepted
+
+**Context.** `docs/SCOPE.md` lists "strip EXIF and other metadata" in Phase 1.
+"Metadata" turns out to name two very different things.
+
+**Decision.**
+
+| Removed | Kept |
+|---|---|
+| EXIF, XMP, IPTC, Photoshop resources, JPEG comments, PNG `tEXt`/`iTXt`/`zTXt`/`eXIf`/`tIME` | ICC profiles (`APP2 ICC_PROFILE`, PNG `iCCP`), `gAMA`, `cHRM`, `sRGB` |
+
+And one refusal: a JPEG whose EXIF Orientation is not 1 is **not stripped at all**
+when it is being passed through untouched. The reason is reported to the user.
+
+**Reasoning.** Law 2 forbids removing anything semantic. Camera make, GPS and
+timestamps change nothing on screen. Colour profiles do — dropping an ICC profile
+shifts every colour in the image, which is precisely the silent visual regression
+Law 2 exists to prevent. Orientation is the sharpest case: strip it from a
+passed-through file and the photo appears on its side.
+
+Files that go through the encoder do not hit the refusal, because decoding applies
+the rotation to the pixels first (ADR-007). Only the passthrough path — where
+re-encoding would have made the file bigger — can encounter it.
+
+**Consequence.** Metadata stripping saves less than a strip-everything approach.
+It also cannot rotate a photograph, which is worth more.
+
+---
+
+## ADR-009 — Savings are measured against the file a browser downloads
+
+**Status:** accepted
+
+**Context.** One source image produces up to fifteen output files: five widths
+across AVIF, WebP and a fallback. There is no single obvious "after" number, and
+the choice is very easy to make dishonestly.
+
+**Decision.** The headline compares the original file against **the smallest
+full-width variant** — the one a modern browser actually fetches at full size. The
+total bytes of everything emitted is shown separately and labelled as the download
+size.
+
+**Reasoning.** Two tempting alternatives are both misreporting:
+- Summing every output looks like the tool made things *worse*, which is false —
+  nobody downloads fifteen files.
+- Quoting the smallest thumbnail would show a 99% saving for a number nobody
+  experiences. That is the kind of claim Law 5 exists to forbid.
+
+Comparing like with like — full size against full size — is the only figure that
+answers the user's actual question.
+
+**Consequence.** The reported percentage is lower than competitors quote. That is
+the intended trade. The report says in words what was measured, so the number can
+be checked.
+
+---
+
+## ADR-010 — Two test tiers, split on whether the browser is required
+
+**Status:** accepted
+
+**Context.** AGENTS.md requires a fixture test per optimizer proving output is
+decodable and smaller. The codecs are WASM built for the browser, and the ones
+Pare uses need `createImageBitmap`, `OffscreenCanvas` and a real WASM host.
+Running them under Node would mean testing a configuration nobody ships.
+
+**Decision.**
+- **Vitest, Node environment** — everything that is pure logic: classification,
+  the resize ladder, metadata stripping, snippet generation, naming, the savings
+  arithmetic, zip assembly. Fast, run on every commit.
+- **Playwright, Chromium** — the codecs themselves and the whole user path. Each
+  encoder is driven directly against a real fixture and its output decoded back to
+  prove it is valid; the app specs walk drop → optimize → snippet → zip.
+
+Fixtures are committed binaries, not generated at test time, so a codec change
+cannot silently change what it is being tested against.
+
+**Reasoning.** The split falls exactly on "does this need a browser". Mocking the
+codecs to run them in Node would test the mock. Running everything in Playwright
+would make the fast feedback loop slow for logic that has no browser dependency.
+
+**Consequence.** Two runners and two commands. CI runs them as separate jobs, so a
+logic regression is reported in under a minute without waiting on WASM.

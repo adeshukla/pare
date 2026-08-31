@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  verify:
+    name: Lint, types, unit tests, budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run coverage
+
+      - name: Build
+        run: npm run build
+
+      # AGENTS.md: initial JS under 150 KB gzipped, all WASM lazy-loaded.
+      # This is the line that stops a codec being imported statically.
+      - name: Initial payload budget
+        run: npm run budget
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage
+          retention-days: 7
+
+  e2e:
+    name: Codec and browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # The codecs are WASM and only run in a browser. This job is where
+      # "output is decodable and smaller" is actually proved, against real files.
+      - name: End-to-end tests
+        run: npm run e2e
+
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7
+
+  deploy:
+    name: Deploy to Cloudflare Pages
+    needs: [verify, e2e]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://pare.devstash.me
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      # Requires two repository secrets:
+      #   CLOUDFLARE_API_TOKEN   - scoped to "Cloudflare Pages: Edit"
+      #   CLOUDFLARE_ACCOUNT_ID
+      # Until both exist this job fails; nothing else in CI depends on it.
+      - name: Publish
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=pare --branch=${{ github.ref_name }}

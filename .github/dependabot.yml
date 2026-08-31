@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # The image codecs move fast and a broken WASM build is invisible until it is
+  # run, so grouped weekly bumps go through the same CI as everything else.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      jsquash:
+        patterns: ['@jsquash/*', 'thumbhash']
+      build-tooling:
+        patterns: ['vite', '@vitejs/*', 'tailwindcss', '@tailwindcss/*', 'typescript']
+      testing:
+        patterns: ['vitest', '@vitest/*', '@playwright/*', 'eslint', 'typescript-eslint', '@eslint/*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
