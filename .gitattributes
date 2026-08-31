@@ -1,0 +1,21 @@
+# Normalise text in the repository, check out native. CI runs on Linux and
+# developers are on Windows; without this the same file hashes differently.
+* text=auto eol=lf
+
+# Test fixtures are compared byte-for-byte by the codec tests. Any line-ending
+# translation would corrupt them, so mark them binary explicitly rather than
+# relying on Git's content sniffing.
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.wasm binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+
+# Keep generated lockfile diffs out of review noise.
+package-lock.json linguist-generated=true -diff
