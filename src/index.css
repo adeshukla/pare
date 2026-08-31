@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+/* Pare design tokens.
+   Direction: a measuring instrument. The numbers are the content — bytes before,
+   bytes after. Everything else stays quiet so the figures carry the page.
+   Deliberately not: cream + terracotta, dark + acid accent, identical rounded cards. */
+@theme {
+  --color-paper: #fbfbf9;
+  --color-ink: #14161a;
+  --color-muted: #6b6f76;
+  --color-rule: #e3e3de;
+  --color-saved: #1c6b4a;   /* only ever used for a measured reduction */
+  --color-warn: #8a5a12;    /* skipped / needs attention */
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+}
+
+@layer base {
+  html {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+  /* Byte counts are compared column-wise. Always tabular. */
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
