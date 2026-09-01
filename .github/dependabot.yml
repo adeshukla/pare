@@ -15,7 +15,12 @@ updates:
       testing:
         patterns: ['vitest', '@vitest/*', '@playwright/*', 'eslint', 'typescript-eslint', '@eslint/*']
 
+  # Grouped, because four separate PRs for four action bumps is noise when they
+  # are always reviewed and merged together anyway.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

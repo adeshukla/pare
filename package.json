@@ -55,6 +55,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.11.0",
     "tailwindcss": "^4.3.3",
+    "_comment_typescript": "Held below 6.1: typescript-eslint@8 peers on typescript >=4.8.4 <6.1.0. TS 7 is released; taking it means dropping type-aware linting. Revisit when typescript-eslint supports it. See docs/STATUS.md.",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.69.0",
     "vite": "^8.2.2",
