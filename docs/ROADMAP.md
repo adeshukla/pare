@@ -67,15 +67,16 @@ synthetic and flatter the encoder badly. See `docs/STATUS.md`.
 
 - `lightningcss-wasm` — minify, autoprefix, transpile to a named browser floor
   (not a browserslist query — see ADR-013)
-- `esbuild-wasm` minify; bundle only for `type="module"`
+- `esbuild-wasm` minify; bundle only for `type="module"` — both done. Bundling
+  is opt-in in folder mode, where the asset graph identifies the entries.
 - `html-minifier-terser`
 - `svgo`
 - gzip via `CompressionStream`, brotli via `brotli-wasm`
-- Optional deeper passes: `csso`, `terser`
+- Optional deeper passes: ~~`csso`~~, `terser` — Terser shipped. **CSSO was
+  implemented and removed**: it silently deletes at-rules it is too old to parse,
+  which is a Law 2 violation with no safe configuration. See ADR-020.
 
 **Exit:** all four text types minified with a visible per-type breakdown. — met.
-Bundling `type="module"` graphs is deferred to Phase 4, which is where the asset
-graph that identifies entry points actually gets built.
 
 ---
 

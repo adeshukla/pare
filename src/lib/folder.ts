@@ -31,9 +31,39 @@ export type FolderSettings = {
   images: boolean;
   /** Minify CSS, JS, HTML and SVG. */
   text: boolean;
+  /**
+   * Bundle `<script type="module">` graphs into one file each.
+   *
+   * Off by default. ADR-003 permits it for modules, and the byte saving from
+   * tree-shaking is real, but the Phase 5 verifier renders with scripts disabled
+   * (ADR-017) and so cannot confirm the result behaves the same. Anything Pare
+   * cannot check is the user's decision to make, not ours - the same treatment
+   * font subsetting gets in ADR-011.
+   */
+  bundle: boolean;
+  /**
+   * Subset fonts to the characters the site actually contains.
+   *
+   * Off by default, for the reason in ADR-011: a static scan cannot see text a
+   * server produces later. Folder mode is the strongest possible case for it -
+   * every page is here, not just one - but "every page in this folder" is still
+   * not "every page this site will serve".
+   *
+   * Only fonts already in WOFF2 are touched. Anything else would change the file
+   * extension, which means rewriting the `format()` token inside `@font-face`
+   * rather than swapping an address, and that is restructuring rather than
+   * renaming.
+   */
+  fonts: boolean;
 };
 
-export const FOLDER_DEFAULTS: FolderSettings = { hash: true, images: true, text: true };
+export const FOLDER_DEFAULTS: FolderSettings = {
+  hash: true,
+  images: true,
+  text: true,
+  bundle: false,
+  fonts: false,
+};
 
 export type FolderFile = {
   path: string;
@@ -47,6 +77,8 @@ export type FolderFile = {
 
 export type FolderResult = {
   files: FolderFile[];
+  /** Module entries that were bundled, and the files folded into each. */
+  bundled: Array<{ entry: string; absorbed: string[] }>;
   graph: Graph;
   /** Original path to hashed path, for everything that was renamed. */
   renamed: Map<string, string>;
@@ -88,8 +120,26 @@ export async function optimizeFolder(
 ): Promise<FolderResult> {
   const warnings: Warning[] = [];
 
+  // 0. Bundle module graphs first, if asked. It has to happen before anything
+  //    else touches the JavaScript, because esbuild wants the sources as the
+  //    author wrote them and does its own minification on the way out.
+  const bundles = folder.bundle
+    ? await bundleModules(assets, warnings)
+    : { replaced: new Map<string, Uint8Array>(), absorbed: new Set<string>(), bundled: [] };
+
+  const surviving = assets.filter((a) => !bundles.absorbed.has(a.path));
+
+  // Characters the whole site contains, for font subsetting. Gathered once, up
+  // front, because every font job needs the same answer.
+  let used: number[] = [];
+  if (folder.fonts && surviving.some((a) => a.kind === 'font')) {
+    const texts = surviving.filter((a) => isTextKind(a.kind));
+    const found = await runAll(texts, (asset, api) => api.scanCodepoints(asset.bytes));
+    used = [...new Set(found.flat())];
+  }
+
   // 1. Optimize each file's bytes, in place and in its own format.
-  const optimized = await runAll(assets, async (asset, api): Promise<FolderFile> => {
+  const optimized = await runAll(surviving, async (asset, api): Promise<FolderFile> => {
     const base: FolderFile = {
       path: asset.path,
       outputPath: asset.path,
@@ -101,6 +151,9 @@ export async function optimizeFolder(
       onUpdate(asset.path, ratio, label),
     );
 
+    const bundled = bundles.replaced.get(asset.path);
+    if (bundled) return { ...base, bytes: bundled };
+
     if (asset.kind === 'image' && folder.images) {
       const result = await api.reencodeImage(
         asset.mime,
@@ -110,6 +163,34 @@ export async function optimizeFolder(
       );
       for (const w of result.warnings) warnings.push({ path: asset.path, message: w });
       return { ...base, bytes: result.bytes, skipped: result.skipped };
+    }
+
+    if (asset.kind === 'font' && folder.fonts) {
+      // Only WOFF2 in, one WOFF2 out, under the same name - so the @font-face
+      // rule that points at it needs no change at all.
+      if (!asset.path.toLowerCase().endsWith('.woff2')) {
+        warnings.push({
+          path: asset.path,
+          message:
+            'Left this font alone — repacking it would change its file extension, which means editing the @font-face rule rather than just its address.',
+        });
+        return base;
+      }
+
+      const result = await api.optimizeFont(
+        asset.path,
+        asset.bytes,
+        { mode: 'used', extraText: '', display: 'swap', preload: false },
+        used,
+        report,
+      );
+      for (const w of result.warnings) warnings.push({ path: asset.path, message: w });
+
+      const only = result.slices.length === 1 ? result.slices[0] : undefined;
+      if (!only || only.bytes.byteLength >= asset.bytes.byteLength) {
+        return { ...base, skipped: result.skipped ?? 'Already as small as it gets.' };
+      }
+      return { ...base, bytes: only.bytes };
     }
 
     if (isTextKind(asset.kind) && folder.text) {
@@ -131,13 +212,13 @@ export async function optimizeFolder(
 
   // 2. Build the graph from the ORIGINAL text, then re-discover references in
   //    whatever the optimizers produced, since minifying moves every offset.
-  const originalGraph = buildGraph(assets);
-  const audit = await run((api) => api.auditGraph(assets, originalGraph));
+  const originalGraph = buildGraph(surviving);
+  const audit = await run((api) => api.auditGraph(surviving, originalGraph));
   for (const path of audit.removed) originalGraph.renameable.delete(path);
   warnings.push(...originalGraph.warnings, ...audit.warnings);
 
   const rewrittenAssets: Asset[] = optimized.map((file) => {
-    const asset = assets.find((a) => a.path === file.path)!;
+    const asset = surviving.find((a) => a.path === file.path)!;
     return { ...asset, bytes: file.bytes };
   });
   const graph = buildGraph(rewrittenAssets);
@@ -179,7 +260,108 @@ export async function optimizeFolder(
     };
   });
 
-  return { files, graph, renamed, warnings, rewritten, pages: graph.entries };
+  return {
+    files,
+    bundled: bundles.bundled,
+    graph,
+    renamed,
+    warnings,
+    rewritten,
+    pages: graph.entries,
+  };
+}
+
+
+/**
+ * Bundle every `<script type="module">` graph, and work out which of the files
+ * folded into each one can safely stop existing.
+ *
+ * Removing a file is the part that needs care. A module whose code now lives
+ * inside the bundle is not lost - but something else may still fetch it by name,
+ * and Pare cannot see that. So a file is only dropped when all of these hold:
+ *
+ *   - esbuild actually inlined it, and it is not the entry itself
+ *   - nothing in any page or stylesheet points at it
+ *   - it is not itself a module entry for some other page
+ *   - no script outside the bundle so much as mentions its filename
+ *   - the bundle contained no dynamic import, which could name anything
+ *
+ * When any of those fails the file is kept, and the only cost is a few bytes.
+ * This is Law 3's reasoning applied to a different question.
+ */
+async function bundleModules(
+  assets: Asset[],
+  warnings: Warning[],
+): Promise<{
+  replaced: Map<string, Uint8Array>;
+  absorbed: Set<string>;
+  bundled: Array<{ entry: string; absorbed: string[] }>;
+}> {
+  const graph = buildGraph(assets);
+  const entries = [
+    ...new Set(
+      graph.refs
+        .filter((r) => r.module && r.resolvable && r.target)
+        .map((r) => r.target!),
+    ),
+  ];
+
+  const replaced = new Map<string, Uint8Array>();
+  const absorbed = new Set<string>();
+  const bundled: Array<{ entry: string; absorbed: string[] }> = [];
+
+  if (entries.length === 0) return { replaced, absorbed, bundled };
+
+  const sources: Record<string, string> = {};
+  for (const asset of assets) {
+    if (asset.kind === 'js') sources[asset.path] = decoder.decode(asset.bytes);
+  }
+
+  for (const entry of entries) {
+    let result;
+    try {
+      result = await run((api) => api.bundleModule(entry, sources));
+    } catch {
+      warnings.push({
+        path: entry,
+        message:
+          'This module could not be bundled, so it and everything it imports were left as separate files.',
+      });
+      continue;
+    }
+
+    for (const message of result.warnings) warnings.push({ path: entry, message });
+    replaced.set(entry, encoder.encode(result.code));
+
+    const folded: string[] = [];
+    if (result.dynamic) {
+      warnings.push({
+        path: entry,
+        message:
+          'This module loads something with a dynamic import, so every file it imports was kept in place — the address could name any of them.',
+      });
+    } else {
+      for (const input of result.inputs) {
+        if (input === entry || absorbed.has(input)) continue;
+        if (!sources[input]) continue;
+        if ((graph.byTarget.get(input) ?? []).length > 0) continue;
+        if (entries.includes(input)) continue;
+
+        const namedElsewhere = Object.entries(sources).some(
+          ([path, text]) =>
+            !result.inputs.includes(path) && text.includes(input.slice(input.lastIndexOf('/') + 1)),
+        );
+        if (namedElsewhere) continue;
+
+        absorbed.add(input);
+        folded.push(input);
+      }
+    }
+
+    bundled.push({ entry, absorbed: folded });
+  }
+
+  return { replaced, absorbed, bundled };
 }
 
 /**

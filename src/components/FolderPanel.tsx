@@ -50,11 +50,39 @@ export function FolderControls({
         <label className={check}>
           <input
             type="checkbox"
+            checked={settings.fonts}
+            onChange={(e) => patch({ fonts: e.target.checked })}
+          />
+          Cut fonts down to the characters this site uses
+        </label>
+        <p className="max-w-prose pl-6 text-xs text-muted">
+          Off by default. Every page here is scanned, but a character your server
+          produces later — from a database, a form, a translation — would not be in
+          the font. Only fonts already in WOFF2 are touched.
+        </p>
+        <label className={check}>
+          <input
+            type="checkbox"
             checked={settings.hash}
             onChange={(e) => patch({ hash: e.target.checked })}
           />
           Add a content fingerprint to filenames, so browsers can cache them forever
         </label>
+        <label className={check}>
+          <input
+            type="checkbox"
+            checked={settings.bundle}
+            onChange={(e) => patch({ bundle: e.target.checked })}
+          />
+          Combine <code className="font-mono text-xs">type=&quot;module&quot;</code> scripts
+          into one file each
+        </label>
+        <p className="max-w-prose pl-6 text-xs text-muted">
+          Only modules, never ordinary scripts — a module&rsquo;s imports can be
+          followed, a plain script&rsquo;s globals cannot. It is off by default
+          because the before-and-after check runs without JavaScript, so it cannot
+          confirm this one for you.
+        </p>
       </fieldset>
       <p className="border-t border-rule px-5 py-3 text-xs text-muted">
         Your markup is not restructured — only addresses change, and only where

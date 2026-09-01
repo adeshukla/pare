@@ -31,6 +31,7 @@ type Text = {
   minifyHtml: (source: string, preset: string) => Promise<string>;
   minifySvg: (source: string, path: string) => Promise<string>;
   isModule: (source: string) => boolean;
+  squeezeJs: (js: string, module: boolean) => Promise<string>;
   gzip: (bytes: Uint8Array) => Promise<Uint8Array>;
   brotli: (bytes: Uint8Array) => Promise<Uint8Array>;
 };
@@ -256,4 +257,39 @@ test('a syntax error is reported rather than producing broken output', async ({ 
 
   // The worker turns this into a skip-and-warn; the file is copied unchanged.
   expect(failed).toBe(true);
+});
+
+/* --------------------- Optional deeper passes ----------------------- */
+
+test('the deeper JS pass still refuses to rename a classic script global', async ({ page }) => {
+  const out = await page.evaluate(async () => {
+    const source = window.__src!['app.js']!;
+    const first = await window.__text!.minifyJs(source);
+    return {
+      module: first.module,
+      squeezed: await window.__text!.squeezeJs(first.code, first.module),
+    };
+  });
+
+  expect(out.module).toBe(false);
+  // Terser is far more aggressive than esbuild, so this is where `toplevel`
+  // being false actually earns its place - ADR-003 applies to both passes.
+  expect(out.squeezed).toContain('siteConfig');
+  expect(out.squeezed).toContain('trackOutboundClick');
+  expect(out.squeezed).toContain('initCards');
+});
+
+test('the deeper JS pass does mangle a module, because it has scope', async ({ page }) => {
+  const out = await page.evaluate(async () => {
+    const source = window.__src!['module.mjs']!;
+    const first = await window.__text!.minifyJs(source);
+    return {
+      module: first.module,
+      squeezed: await window.__text!.squeezeJs(first.code, first.module),
+    };
+  });
+
+  expect(out.module).toBe(true);
+  expect(out.squeezed).not.toContain('DEFAULT_TIMEOUT_IN_MILLISECONDS');
+  expect(out.squeezed).toContain('createLoader');
 });

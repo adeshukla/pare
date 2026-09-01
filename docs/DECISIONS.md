@@ -558,3 +558,57 @@ exactly the same ones.
 **Consequence.** The verifier answers "did anything change?", not "is it faster?".
 The savings report answers the second question in bytes, which is the only
 currency Pare deals in.
+
+---
+
+## ADR-020 — CSSO is rejected as the second CSS pass
+
+**Status:** accepted
+
+**Context.** `docs/ROADMAP.md` lists "optional deeper passes: `csso`, `terser`" in
+Phase 3. Terser shipped. CSSO was implemented, tested, and removed.
+
+**Decision.** There is no second CSS pass. Terser remains as the optional second
+JavaScript pass.
+
+**Reasoning.** CSSO silently deletes CSS it cannot parse.
+
+Lightning CSS, targeting modern browsers, emits media queries in range syntax:
+
+```css
+@media (width>=768px){.card{padding:24px 32px}}
+```
+
+CSSO 5.0.5 predates that syntax. Handed the stylesheet above it does not error,
+does not warn, and does not pass the rule through — it returns the stylesheet with
+the entire `@media` block gone. The rule and everything inside it simply cease to
+exist, and the only symptom is a site whose responsive layout stops working.
+
+That is precisely what Law 2 forbids, and no configuration prevents it: the loss
+happens in the parser, before any option is consulted. `restructure: false` does
+not help, because restructuring is not the problem.
+
+The general shape of the problem is worse than this one instance. CSSO's last
+release predates container queries, `:has()`, native nesting, cascade layers and
+relative colour syntax. Every one of those is CSS a user may reasonably have
+written, and every one is a chance for the same silent deletion. Pare would be
+shipping a component guaranteed to fall further behind the language it is fed.
+
+**Alternatives considered.**
+
+- *Run CSSO first, on the authored CSS, and let Lightning CSS finish.* Avoids the
+  range-syntax case but not the general one — the user's own stylesheet may
+  contain anything newer than 2021.
+- *Guard the output by checking every at-rule survived.* Catches this failure but
+  not a dropped declaration or an unparseable value, and a guard that covers some
+  silent deletions invites more confidence than it earns.
+- *Ship it off by default with a warning.* Rejected for the same reason ADR-002
+  rejects an off-by-default CSS purger: a dangerous default that happens to be off
+  is still a dangerous default.
+
+**Consequence.** CSS gets one pass. Lightning CSS is actively maintained, is
+already doing the safe work well, and the marginal bytes CSSO offered were never
+worth a silent deletion.
+
+The evidence is reproducible: minify `tests/fixtures/text/site.css` at the modern
+target and pass the result to CSSO. The `@media` block does not come back.

@@ -38,7 +38,8 @@ Or drop **loose files** and get optimized assets plus the markup to paste in:
 - **Fonts** — split by writing system so a page downloads only the scripts it
   uses, or subset to the characters you actually use; WOFF2 out
 - **Code** — minify CSS, JavaScript, HTML and SVG; prefix CSS to a stated browser
-  floor; write gzip and brotli siblings
+  floor; write gzip and brotli siblings; optionally bundle `type="module"`
+  scripts, and squeeze JavaScript harder with a second pass
 - **Snippets** — paste-ready `<picture>` and `@font-face`, with `srcset`, `sizes`,
   `width`, `height` and `unicode-range` filled in
 - **Report** — honest before/after bytes, per file and per type, with every skip

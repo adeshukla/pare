@@ -23,7 +23,16 @@ import type {
   Variant,
 } from '../lib/types';
 import { fromWoff2, subsetFont, toWoff2 } from './font-codecs';
-import { brotli, gzip, minifyCss, minifyHtml, minifyJs, minifySvg } from './text-codecs';
+import {
+  brotli,
+  bundleModule,
+  gzip,
+  minifyCss,
+  minifyHtml,
+  minifyJs,
+  minifySvg,
+  squeezeJs,
+} from './text-codecs';
 import {
   decode,
   encodeAvif,
@@ -235,7 +244,20 @@ async function minifyByKind(
   settings: TextSettings,
 ): Promise<string | undefined> {
   if (kind === 'css') return settings.css ? minifyCss(source, path, settings.target) : undefined;
-  if (kind === 'js') return settings.js ? (await minifyJs(source)).code : undefined;
+
+  if (kind === 'js') {
+    if (!settings.js) return undefined;
+    const first = await minifyJs(source);
+    if (!settings.deeper) return first.code;
+    // A failed second pass is not a failed minification: keep the first result.
+    try {
+      const twice = await squeezeJs(first.code, first.module);
+      return twice.length < first.code.length ? twice : first.code;
+    } catch {
+      return first.code;
+    }
+  }
+
   if (kind === 'html') return settings.html ? minifyHtml(source, settings.target) : undefined;
   return settings.svg ? minifySvg(source, path) : undefined;
 }
@@ -515,6 +537,7 @@ const api = {
   optimizeFont,
   optimizeText,
   reencodeImage,
+  bundleModule,
 
   /**
    * Read a page the way a browser will and report any address the scanner could

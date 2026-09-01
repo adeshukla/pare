@@ -309,6 +309,18 @@ function TextControls({
           Also write <code className="font-mono text-xs">.br</code> copies
           <span className="text-xs text-muted">(downloads a 200 KB compressor)</span>
         </label>
+        <label className={check}>
+          <input
+            type="checkbox"
+            checked={settings.deeper}
+            onChange={(e) => patch({ deeper: e.target.checked })}
+          />
+          Squeeze JavaScript harder, more slowly
+        </label>
+        <p className="max-w-prose text-xs text-muted">
+          A second pass with Terser. Usually a few percent smaller than esbuild
+          alone, and noticeably slower on a big file.
+        </p>
       </div>
     </div>
   );

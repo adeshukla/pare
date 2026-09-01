@@ -231,3 +231,154 @@ export async function brotli(bytes: Uint8Array): Promise<Uint8Array> {
   const brotliWasm = await (mod.default as unknown as Promise<typeof BrotliWasm>);
   return brotliWasm.compress(bytes, { quality: 11 });
 }
+
+/* ------------------------------------------------------------------ *
+ * Bundling - modules only
+ * ------------------------------------------------------------------ */
+
+export type BundleResult = {
+  code: string;
+  /** Folder-relative paths esbuild pulled into the bundle, entry included. */
+  inputs: string[];
+  /** Bare specifiers left alone, and anything else worth telling the user. */
+  warnings: string[];
+  /** True when a dynamic import was seen, which makes removing inputs unsafe. */
+  dynamic: boolean;
+};
+
+/**
+ * Bundle one `<script type="module">` graph.
+ *
+ * ADR-003 permits this for modules and forbids it for classic scripts, and the
+ * reason is scope: a module's imports and exports are declarations esbuild can
+ * follow, while a classic script's top-level names are globals that anything can
+ * reach. That distinction is the whole basis for treating the two differently.
+ *
+ * There is no filesystem here, so resolution is served entirely from the files
+ * the user dropped in. A bare specifier - `import x from "lodash"` - cannot be
+ * resolved without a package registry, which `docs/SCOPE.md` rules out. Those are
+ * marked external, so the import survives into the output exactly as written and
+ * the page behaves no differently than before.
+ */
+export async function bundleModule(
+  entry: string,
+  files: Record<string, string>,
+): Promise<BundleResult> {
+  const esbuild = await loadEsbuild();
+  const warnings: string[] = [];
+  let dynamic = false;
+
+  const resolve = (specifier: string, importer: string): string | undefined => {
+    const base = importer.includes('/') ? importer.slice(0, importer.lastIndexOf('/')) : '';
+    const joined = specifier.startsWith('/')
+      ? specifier.slice(1)
+      : base
+        ? `${base}/${specifier}`
+        : specifier;
+
+    const parts: string[] = [];
+    for (const segment of joined.split('/')) {
+      if (segment === '' || segment === '.') continue;
+      if (segment === '..') {
+        if (parts.length === 0) return undefined;
+        parts.pop();
+        continue;
+      }
+      parts.push(segment);
+    }
+
+    const path = parts.join('/');
+    // Browsers require the extension, but be forgiving of a missing one.
+    for (const candidate of [path, `${path}.js`, `${path}/index.js`]) {
+      if (files[candidate] !== undefined) return candidate;
+    }
+    return undefined;
+  };
+
+  const result = await esbuild.build({
+    entryPoints: [entry],
+    bundle: true,
+    write: false,
+    format: 'esm',
+    target: 'es2017',
+    minify: true,
+    metafile: true,
+    legalComments: 'inline',
+    logLevel: 'silent',
+    plugins: [
+      {
+        name: 'dropped-folder',
+        setup(build) {
+          build.onResolve({ filter: /.*/ }, (args) => {
+            if (args.kind === 'entry-point') return { path: entry, namespace: 'folder' };
+            if (args.kind === 'dynamic-import') dynamic = true;
+
+            const relative = /^[./]/.test(args.path);
+            if (!relative) {
+              // A package name. Leaving it external keeps the import verbatim.
+              warnings.push(
+                `"${args.path}" comes from a package rather than your folder, so the import was left as it is.`,
+              );
+              return { path: args.path, external: true };
+            }
+
+            const resolved = resolve(args.path, args.importer);
+            if (!resolved) {
+              warnings.push(
+                `Could not find "${args.path}" imported by ${args.importer}, so the import was left as it is.`,
+              );
+              return { path: args.path, external: true };
+            }
+            return { path: resolved, namespace: 'folder' };
+          });
+
+          build.onLoad({ filter: /.*/, namespace: 'folder' }, (args) => ({
+            contents: files[args.path] ?? '',
+            loader: 'js',
+            resolveDir: '/',
+          }));
+        },
+      },
+    ],
+  });
+
+  const output = result.outputFiles?.[0];
+  if (!output) throw new Error('the bundler produced nothing');
+
+  return {
+    code: output.text,
+    inputs: Object.keys(result.metafile?.inputs ?? {}).map((p) => p.replace(/^folder:/, '')),
+    warnings,
+    dynamic,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Optional deeper pass - JavaScript only
+ *
+ * There is no second CSS pass. CSSO was tried for it and rejected: fed the
+ * modern range syntax Lightning CSS emits (`@media (width>=768px)`), it cannot
+ * parse the at-rule and drops the whole block without a word. Silent deletion is
+ * exactly what Law 2 forbids, and no configuration turns it off - the parser
+ * simply predates the syntax. See ADR-020.
+ * ------------------------------------------------------------------ */
+
+/**
+ * A second JS pass with Terser, which is slower than esbuild and usually a few
+ * percent smaller.
+ *
+ * `toplevel` is the load-bearing option and it follows ADR-003 exactly. For a
+ * classic script it stays false, so Terser will neither rename nor delete a
+ * top-level declaration - those are globals, and anything on the page can reach
+ * them. For a module it is safe to turn on, because the file has real scope.
+ */
+export async function squeezeJs(js: string, module: boolean): Promise<string> {
+  const { minify } = await import('terser');
+  const result = await minify(js, {
+    module,
+    compress: { toplevel: module },
+    mangle: { toplevel: module },
+    format: { comments: 'some' },
+  });
+  return result.code ?? js;
+}

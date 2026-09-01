@@ -88,6 +88,13 @@ export type TextSettings = {
   brotli: boolean;
   /** Minimum browser versions handed to Lightning CSS. */
   target: TargetPreset;
+  /**
+   * A second JavaScript pass with Terser. Slower, usually a few percent smaller.
+   *
+   * JavaScript only. CSSO was tried for the CSS half and rejected for silently
+   * deleting at-rules it is too old to parse - see ADR-020.
+   */
+  deeper: boolean;
 };
 
 /**
@@ -119,4 +126,5 @@ export const TEXT_DEFAULTS: TextSettings = {
   gzip: true,
   brotli: false,
   target: 'modern',
+  deeper: false,
 };

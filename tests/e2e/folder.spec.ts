@@ -19,6 +19,8 @@ const SITE = [
   'css/site.css',
   'css/type.css',
   'js/app.js',
+  'js/main.mjs',
+  'js/lib.mjs',
   'img/hero.png',
   'img/icon.png',
   'img/inline.png',
@@ -342,4 +344,128 @@ test('the verifier catches a background image that stopped painting', async ({ p
 
   expect(result.passed).toBe(false);
   expect(result.findings.map((f) => f.message).join(' ')).toMatch(/background image/i);
+});
+
+/* ------------------------------------------------------------------ *
+ * Bundling — ADR-003 allows it for modules only
+ * ------------------------------------------------------------------ */
+
+test('leaves module files separate unless asked to bundle', async ({ page }) => {
+  await dropSite(page);
+  await page.getByRole('button', { name: /^Optimize the site$/ }).click();
+  await expect(page.getByRole('button', { name: 'Download site' })).toBeVisible({
+    timeout: 90_000,
+  });
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download site' }).click(),
+  ]);
+  const names = Object.keys(unzipSync(new Uint8Array(readFileSync(await downloaded.path()))));
+
+  // Off by default: the verifier runs without JavaScript and cannot check this.
+  expect(names.some((n) => n.includes('main'))).toBe(true);
+  expect(names.some((n) => n.includes('lib'))).toBe(true);
+});
+
+test('bundles a module graph, tree-shakes it, and folds the import away', async ({ page }) => {
+  await dropSite(page);
+  await page.getByRole('checkbox', { name: /Combine .* scripts/ }).check();
+  await page.getByRole('button', { name: /^Optimize the site$/ }).click();
+  await expect(page.getByRole('button', { name: 'Download site' })).toBeVisible({
+    timeout: 90_000,
+  });
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download site' }).click(),
+  ]);
+  const zip = unzipSync(new Uint8Array(readFileSync(await downloaded.path())));
+  const names = Object.keys(zip);
+
+  // lib.mjs is now inside the bundle and nothing else names it, so it is gone.
+  expect(names.some((n) => n.includes('lib'))).toBe(false);
+  const entry = names.find((n) => n.includes('main'));
+  expect(entry).toBeDefined();
+
+  const code = strFromU8(zip[entry!]!);
+  // The imported function came along...
+  expect(code).toContain('KB');
+  // ...and the export nothing imports was shaken out.
+  expect(code).not.toContain('neverImportedAnywhere');
+  expect(code).not.toContain('only to be removed');
+
+  // Smaller than the two files it replaced.
+  const before =
+    readFileSync(`${FIXTURES}/js/main.mjs`).byteLength +
+    readFileSync(`${FIXTURES}/js/lib.mjs`).byteLength;
+  expect(zip[entry!]!.byteLength).toBeLessThan(before);
+});
+
+test('never bundles a classic script', async ({ page }) => {
+  await dropSite(page);
+  await page.getByRole('checkbox', { name: /Combine .* scripts/ }).check();
+  await page.getByRole('button', { name: /^Optimize the site$/ }).click();
+  await expect(page.getByRole('button', { name: 'Download site' })).toBeVisible({
+    timeout: 90_000,
+  });
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download site' }).click(),
+  ]);
+  const zip = unzipSync(new Uint8Array(readFileSync(await downloaded.path())));
+  const names = Object.keys(zip);
+
+  // app.js is a classic script: its top-level names are globals, so ADR-003
+  // says it is minified and nothing more.
+  const app = names.find((n) => n.includes('app'));
+  expect(app).toBeDefined();
+  const code = strFromU8(zip[app!]!);
+
+  // Its globals keep their names — anything on the page could reach them.
+  expect(code).toContain('GALLERY');
+  expect(code).toContain('show');
+  // And it was not folded into anything: it is still its own file.
+  expect(code).toContain('img/scripted.png');
+});
+
+test('cuts a font down to the characters the site uses, keeping its name', async ({ page }) => {
+  await dropSite(page);
+  await page.getByRole('checkbox', { name: /Cut fonts down/ }).check();
+  await page.getByRole('button', { name: /^Optimize the site$/ }).click();
+  await expect(page.getByRole('button', { name: 'Download site' })).toBeVisible({
+    timeout: 90_000,
+  });
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download site' }).click(),
+  ]);
+  const zip = unzipSync(new Uint8Array(readFileSync(await downloaded.path())));
+
+  const font = Object.keys(zip).find((n) => n.endsWith('.woff2'));
+  expect(font).toBeDefined();
+  // Still one file, still WOFF2, so the @font-face rule needs no restructuring.
+  expect(zip[font!]!.byteLength).toBeLessThan(
+    readFileSync(`${FIXTURES}/img/site.woff2`).byteLength,
+  );
+});
+
+test('leaves fonts alone by default, and says so when it cannot repack one', async ({ page }) => {
+  await dropSite(page);
+  await page.getByRole('button', { name: /^Optimize the site$/ }).click();
+  await expect(page.getByRole('button', { name: 'Download site' })).toBeVisible({
+    timeout: 90_000,
+  });
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download site' }).click(),
+  ]);
+  const zip = unzipSync(new Uint8Array(readFileSync(await downloaded.path())));
+  const font = Object.keys(zip).find((n) => n.endsWith('.woff2'))!;
+
+  // Untouched: subsetting can lose a glyph, so it is the user's call.
+  expect(zip[font]!.byteLength).toBe(readFileSync(`${FIXTURES}/img/site.woff2`).byteLength);
 });
