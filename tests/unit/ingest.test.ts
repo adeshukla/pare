@@ -180,3 +180,55 @@ describe('fromFileList', () => {
     expect(new TextDecoder().decode(assets[0]!.bytes)).toBe('.a{color:red}');
   });
 });
+
+describe('fromDataTransfer resilience', () => {
+  /** An entry that looks readable and then refuses, as WebKit's does. */
+  function refusingFile(name: string): Entry {
+    return {
+      isFile: true,
+      isDirectory: false,
+      name,
+      file: (_ok: (f: File) => void, fail: (e: Error) => void) =>
+        fail(new Error('NotFoundError: Path does not exist')),
+    } as unknown as Entry;
+  }
+
+  it('keeps the files it can read when one entry refuses', async () => {
+    const assets = await fromDataTransfer(
+      drop([
+        dirEntry('site', [
+          fileEntry('good.css', 'a{}'),
+          refusingFile('bad.css'),
+          fileEntry('also-good.css', 'b{}'),
+        ]),
+      ]),
+    );
+    expect(paths(assets)).toEqual(['site/also-good.css', 'site/good.css']);
+  });
+
+  it('falls back to the plain file list when every entry refuses', async () => {
+    // This is the WebKit case exactly: the entries API is present and answers,
+    // then every read fails. Before the fallback, the drop did nothing at all.
+    const files = [new File(['a{}'], 'site.css'), new File(['<p>'], 'index.html')];
+    const transfer = {
+      items: [{ kind: 'file', webkitGetAsEntry: () => refusingFile('site.css') }],
+      files,
+    } as unknown as DataTransfer;
+
+    const assets = await fromDataTransfer(transfer);
+    expect(paths(assets)).toEqual(['index.html', 'site.css']);
+  });
+
+  it('never throws, whatever the entry does', async () => {
+    const exploding = {
+      isFile: false,
+      isDirectory: true,
+      name: 'boom',
+      createReader: () => ({
+        readEntries: (_ok: unknown, fail: (e: Error) => void) => fail(new Error('nope')),
+      }),
+    } as unknown as Entry;
+
+    await expect(fromDataTransfer(drop([exploding], []))).resolves.toEqual([]);
+  });
+});

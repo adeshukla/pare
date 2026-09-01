@@ -74,10 +74,17 @@ export async function fromDataTransfer(dt: DataTransfer): Promise<Asset[]> {
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
 
     if (entry.isFile) {
-      const file = await new Promise<File>((res, rej) =>
-        (entry as FileSystemFileEntry).file(res, rej),
-      );
-      out.push(await toAsset(file, path));
+      try {
+        const file = await new Promise<File>((res, rej) =>
+          (entry as FileSystemFileEntry).file(res, rej),
+        );
+        out.push(await toAsset(file, path));
+      } catch {
+        // One entry the browser will not hand over must not take the whole drop
+        // with it. WebKit does exactly this: webkitGetAsEntry returns an entry
+        // that looks fine and then rejects the read with NotFoundError, and
+        // before this catch existed the drop silently did nothing at all.
+      }
       return;
     }
 
@@ -92,6 +99,16 @@ export async function fromDataTransfer(dt: DataTransfer): Promise<Asset[]> {
     }
   }
 
-  for (const root of roots) await walk(root, '');
-  return out;
+  for (const root of roots) {
+    try {
+      await walk(root, '');
+    } catch {
+      // Same reasoning one level up: a directory that cannot be enumerated
+      // costs its own contents, not the entire drop.
+    }
+  }
+
+  // The entries API was there but produced nothing usable. The plain file list
+  // is still perfectly good, and it is what the user actually dropped.
+  return out.length > 0 ? out : fromFileList(dt.files);
 }

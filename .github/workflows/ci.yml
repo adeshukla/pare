@@ -75,11 +75,16 @@ jobs:
 
       - run: npm ci
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install browsers
+        run: npx playwright install --with-deps chromium firefox webkit
 
       # The codecs are WASM and only run in a browser. This job is where
       # "output is decodable and smaller" is actually proved, against real files.
+      #
+      # All three engines, because Pare's fallback matrix exists for the two that
+      # are not Chromium, and running there found a real bug: WebKit hands back a
+      # directory entry it then refuses to read, which used to kill the whole
+      # drop silently.
       - name: End-to-end tests
         run: npm run e2e
 

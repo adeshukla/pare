@@ -113,7 +113,11 @@ test('the download is a zip holding every variant plus the snippets', async ({ p
   }
 });
 
-test('copies the snippet to the clipboard', async ({ page, context }) => {
+test('copies the snippet to the clipboard', async ({ page, context, browserName }) => {
+  // Playwright can only grant clipboard permission in Chromium. The Copy button
+  // works in the other two - we just cannot pre-authorise the read-back, and a
+  // test that clicks through a permission prompt tests the prompt, not Pare.
+  test.skip(browserName !== 'chromium', 'clipboard permissions are Chromium-only in Playwright');
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await choose(page, 'photo.jpg');
   await page.getByRole('button', { name: /^Optimize/ }).click();

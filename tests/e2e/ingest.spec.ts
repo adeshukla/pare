@@ -84,18 +84,26 @@ test('a cancelled folder pick is not treated as an error', async ({ page }) => {
 
 test('a real drop event reaches the handler and loads the files', async ({ page }) => {
   await page.goto('/');
+  // WebKit returns from goto before React has rendered, so the drop zone has to
+  // be waited for rather than assumed. Without this the dispatch below targets
+  // an element that does not exist yet.
+  await expect(page.getByText('Drop a folder or files here')).toBeVisible();
 
-  const transfer = await page.evaluateHandle(() => {
+  // Built and dispatched inside the page rather than through Playwright's
+  // dispatchEvent helper, which does not carry the DataTransfer handle across
+  // in WebKit. DataTransfer, items.add and DragEvent all behave identically in
+  // all three engines - it is only the test-driver hop that differs.
+  await page.evaluate(() => {
     const dt = new DataTransfer();
     dt.items.add(new File(['.a{color:red}'], 'site.css', { type: 'text/css' }));
     dt.items.add(new File(['<!doctype html><p>hi</p>'], 'index.html', { type: 'text/html' }));
-    return dt;
-  });
 
-  // Dispatched on the text inside the zone; React's delegated handler picks it
-  // up as it bubbles, exactly as a genuine drop does.
-  await page.dispatchEvent('text=Drop a folder or files here', 'drop', {
-    dataTransfer: transfer,
+    // Dispatched on the text inside the zone; React's delegated handler picks it
+    // up as it bubbles, exactly as a genuine drop does.
+    const target = [...document.querySelectorAll('p')].find((el) =>
+      el.textContent?.includes('Drop a folder or files here'),
+    )!;
+    target.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
   });
 
   await expect(page.getByText('2 dropped')).toBeVisible();

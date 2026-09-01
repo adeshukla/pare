@@ -12,7 +12,7 @@ Updated: 2026-09-01
 | **Phase 5 — Verification** | ✅ complete (web-vitals not shipped — ADR-019) |
 | Live at | — **the deploy pipeline has never run.** See below. |
 | Initial JS | **80.6 KB gzipped** of a 150 KB budget |
-| Tests | 180 unit (Vitest) + 63 browser (Playwright), all passing |
+| Tests | 183 unit (Vitest) + 189 browser (63 × Chromium, Firefox, WebKit), all passing |
 
 > **Phases 2 through 5 were built ahead of the Phase 1 launch gate**, at the
 > project owner's direction. The gate that was **not** relaxed is the one that
@@ -71,7 +71,7 @@ bundling, and the deeper Terser pass.
 | `page.html` | 974 B | 365 B | 62% |
 | `logo.svg` | 1.0 KB | 366 B | 65% |
 | the site fixture (12 files) | 17.7 KB | 16.3 KB | 8% |
-| **20 photographs, end to end** | 3.4 MB | — | **11 seconds** |
+| **20 photographs, end to end** | 3.4 MB | — | **11s / 23s / 80s** |
 
 **Read these as smoke tests, not claims.** `photo.jpg` is a synthetic gradient
 and AVIF smooths exactly that, so 98% is far above a real photograph. The font
@@ -79,8 +79,10 @@ fixture is already a Latin-only webfont, so splitting has nothing left to win �
 subsetting it to one sentence gives 82%. The site fixture's 8% is dominated by a
 14.7 KB WOFF2 that site mode leaves alone by default.
 
-The 20-photo run is the Phase 1 exit criterion, tested at last: 20 decodes and up
-to 300 encodes across the worker pool, nothing skipped, zip intact.
+The 20-photo run is the Phase 1 exit criterion: 20 decodes and up to 300 encodes
+across the worker pool, nothing skipped, zip intact. The three timings are
+Chromium, WebKit and Firefox. Output is byte-identical in all three — Firefox is
+simply much slower at compiling and running these WASM encoders.
 
 ---
 
@@ -125,6 +127,12 @@ Each of these was invisible until something real ran against it.
 8. **`parseSrcset` split on every comma**; a URL may legally contain one.
 9. **`setInputFiles` flattens folder structure**, which is why the folder tests
    build the drop the way a real directory pick does.
+10. **A dropped folder silently did nothing in WebKit.** `webkitGetAsEntry()`
+    returns an entry that looks readable and then rejects the read with
+    `NotFoundError`. That rejection propagated out of ingest and aborted the
+    entire drop — the user dropped files and the page just sat there. Ingest now
+    skips an entry it cannot read and falls back to the plain file list if the
+    walk yields nothing. Found only by running in a second engine.
 
 ## CI/CD
 
@@ -154,14 +162,18 @@ Core Web Vitals · ADR-020 no CSSO
 - [ ] Point `pare.devstash.me` at it
 - [ ] Run folder mode against a real WordPress or static-site export
 - [ ] Measure real savings on real photographs and a full multi-script font
-- [ ] Try it in Firefox and Safari — everything so far is Chromium only
 
 ## Known gaps
 
-- **Chromium only.** The browser-support matrix in `AGENTS.md` — AVIF fallbacks,
-  `OffscreenCanvas`, the File System Access API — has never been exercised
-  anywhere else. The ingest paths are now unit-tested and driven through the UI,
-  but only in one engine.
+- **WebKit has no `OffscreenCanvas`**, so every image decode there falls through
+  to the WASM decoders rather than the browser's own. It works and the output is
+  identical, but it costs a few hundred KB of extra download and is slower.
+  `AGENTS.md` specifies "main-thread canvas" as the fallback for this; that path
+  is not built, because the decode runs in a worker where no such canvas exists.
+  Worth revisiting if Safari telemetry ever justifies it.
+- **Firefox is roughly 7× slower** through the image pipeline — 80s for twenty
+  photographs against 11s in Chromium. Correctness is identical; it is WASM
+  encode throughput, not a bug. Worth knowing before quoting timings.
 - **Site mode does not emit `<picture>`.** Modern formats need `<source type=…>`,
   which reparents the `<img>` and can break `.gallery > img`. Site mode changes
   bytes, never markup — so a whole-site run gets in-place re-encoding (20–40%)
