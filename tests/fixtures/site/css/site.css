@@ -1,0 +1,14 @@
+@import "type.css";
+
+.banner {
+  background-image: url(../img/hero.png);
+}
+
+.icon {
+  background-image: url("../img/icon.png");
+}
+
+/* Points at a file that was never dropped in. */
+.missing {
+  background-image: url("../img/absent.png");
+}

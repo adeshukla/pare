@@ -27,6 +27,12 @@ and it gives you the `<picture>` tag, not just the file.
 
 ## What it does today
 
+Drop a **whole folder** and Pare optimizes it in place, fingerprints the filenames
+it can safely rename, updates every address pointing at them, then renders each
+page before and after to prove nothing moved — and only then offers the download.
+
+Or drop **loose files** and get optimized assets plus the markup to paste in:
+
 - **Images** — resize to a breakpoint ladder, encode AVIF + WebP alongside an
   optimized original-format fallback, strip metadata, generate blur placeholders
 - **Fonts** — split by writing system so a page downloads only the scripts it
@@ -40,11 +46,11 @@ and it gives you the `<picture>` tag, not just the file.
 
 ## What is planned
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md).
-
-- **Folder mode** — crawl an entry HTML file and rewrite what can be safely rewritten
-- **Verification** — render before and after, pixel-diff, and refuse to hand you a
-  page that changed
+Every phase in [`docs/ROADMAP.md`](docs/ROADMAP.md) is now built. Two items inside
+them were deliberately not shipped — critical CSS extraction and a Core Web Vitals
+number — because neither could be made honest. The reasoning is in
+[ADR-018](docs/DECISIONS.md) and [ADR-019](docs/DECISIONS.md), and the gaps are
+listed in [`docs/STATUS.md`](docs/STATUS.md).
 
 ## What it deliberately doesn't do
 
@@ -57,6 +63,12 @@ remove — so an unused CSS rule survives, `alt=""` survives, an SVG id survives
 a global in a classic script keeps its name. The one operation that can genuinely
 lose something, subsetting a font down to the characters it can see, is off by
 default and says so when you turn it on.
+
+Folder mode renames a file only when **every** reference to it could be traced. A
+path built in JavaScript, a `url()` in an inline `style` attribute, a server
+template — any one of those and the file keeps its name, and Pare tells you which
+file and why. Then it renders every page before and after and compares them; if
+anything moved, you do not get a download.
 
 Tools that strip "unused" CSS can't know what a database-driven or JS-toggled class
 will be, and they break pages nobody tests. We'd rather ship a smaller win you can trust.

@@ -54,3 +54,23 @@ be *hostile to an over-eager minifier*, and every oddity in them is load-bearing
 
 Do not tidy these files. Removing the "pointless" empty attribute or the unused
 CSS rule removes the test.
+
+## Site
+
+`site/` is a small but deliberately awkward website, used by the folder-mode and
+Law 3 suites. Every reference in it is there to exercise one branch of "may this
+file be renamed?":
+
+| File | What it proves |
+|---|---|
+| `img/icon.png` | referenced only in resolvable ways, so it *is* fingerprinted |
+| `img/inline.png` | reached from an inline `style` attribute — never renamed |
+| `img/scripted.png` | named inside `js/app.js` — never renamed, because scripts are not rewritten |
+| `index.html` | holds a templated `src`, an external URL, and a two-candidate `srcset` |
+| `about.html` | holds a `<style>` block, which *is* rewritable, unlike a style attribute |
+| `css/site.css` | `@import`, `../` relative paths, and one `url()` pointing at a file that does not exist |
+
+Both pages are also rendered by the verifier at three viewports, so the fixture
+doubles as the Phase 5 test site.
+
+Do not "fix" the broken reference or remove the templated one. They are the tests.

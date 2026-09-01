@@ -79,7 +79,7 @@ graph that identifies entry points actually gets built.
 
 ---
 
-## Phase 4 — Folder mode
+## Phase 4 — Folder mode ✅ **built** (one item deferred)
 **~2 weeks**
 
 - Entry HTML detection, full asset graph via `DOMParser`
@@ -87,20 +87,27 @@ graph that identifies entry points actually gets built.
 - Content hashing + rewriting for resolvable references only
 - Warning list for everything skipped, in plain language
 - Complete `dist/` output
-- Critical CSS extraction at mobile viewport, inline + async rest
+- ~~Critical CSS extraction at mobile viewport, inline + async rest~~ — **not
+  shipped.** It is the one part of this phase the Phase 5 verifier cannot check,
+  and its benefit is a performance claim Law 5 forbids. See ADR-018.
 
 **Gate:** does not ship without Phase 5's verifier. This is the first phase that
-can break a page.
+can break a page. — **honoured.** The verifier was built alongside it, and the
+download button does not render until the check comes back clean. There is no
+"download anyway".
 
 ---
 
-## Phase 5 — Verification
+## Phase 5 — Verification ✅ **built** (one item deferred)
 **~1 week**
 
 - Render before/after in iframes at the viewport matrix
-- `pixelmatch` diff, flag anything over threshold
-- `web-vitals` measurement in preview
-- Per-page pass/fail before download is offered
+- ~~`pixelmatch` diff~~ — replaced by a layout, resource-load and
+  background-paint diff. A browser cannot screenshot an iframe. See ADR-017.
+- ~~`web-vitals` measurement in preview~~ — **not shipped.** A number measured
+  from a blob URL on the optimizing machine says nothing about the user's host,
+  and publishing it would be the performance claim Law 5 forbids. See ADR-019.
+- Per-page pass/fail before download is offered — done, at 360/768/1280px
 
 ---
 

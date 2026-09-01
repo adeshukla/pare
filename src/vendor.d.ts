@@ -11,8 +11,11 @@ declare module 'html-minifier-terser' {
     removeComments?: boolean;
     collapseWhitespace?: boolean;
     conservativeCollapse?: boolean;
-    minifyCSS?: boolean | ((css: string) => string | Promise<string>);
-    minifyJS?: boolean | ((js: string) => string | Promise<string>);
+    /** `type` is 'inline' for a style attribute, 'media' for a media query,
+     *  and undefined for a <style> element. */
+    minifyCSS?: boolean | ((css: string, type?: string) => string | Promise<string>);
+    /** `type` is 'event' for an on* handler attribute, undefined for <script>. */
+    minifyJS?: boolean | ((js: string, type?: string) => string | Promise<string>);
     removeAttributeQuotes?: boolean;
     removeEmptyAttributes?: boolean;
     removeRedundantAttributes?: boolean;

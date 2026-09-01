@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pare folder-mode fixture</title>
+    <link rel="stylesheet" href="css/site.css" />
+    <link rel="icon" href="img/icon.png" />
+  </head>
+  <body>
+    <!-- Resolvable: plain relative paths to files that exist. -->
+    <img src="img/hero.png" alt="Hero" width="80" height="60" />
+    <img srcset="img/hero.png 1x, img/icon.png 2x" src="img/hero.png" alt="Set" />
+
+    <!-- Law 3: url() in an inline style attribute is never rewritten, so
+         img/inline.png must keep its name. -->
+    <div style="background-image: url('img/inline.png')">Inline</div>
+
+    <!-- Law 3: a templated address cannot be resolved from these files. -->
+    <img src="{{ asset_path }}/img/hero.png" alt="Templated" />
+
+    <!-- Leaves the folder entirely. -->
+    <img src="https://example.com/remote.png" alt="Remote" />
+
+    <a href="about.html">About</a>
+    <script src="js/app.js"></script>
+  </body>
+</html>

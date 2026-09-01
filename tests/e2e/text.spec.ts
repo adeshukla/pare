@@ -164,6 +164,23 @@ test('HTML keeps every attribute and the spaces between inline elements', async 
   expect(out.min).not.toContain('Safe to remove');
 });
 
+test('HTML leaves inline style attributes and event handlers untouched', async ({ page }) => {
+  const out = await page.evaluate(async () => {
+    const source =
+      `<div style="background-image: url('img/a.png'); color: red">x</div>` +
+      `<button onclick="doThing( 1 , 2 )">go</button>`;
+    return window.__text!.minifyHtml(source, 'modern');
+  });
+
+  // A style attribute is a declaration list, not a stylesheet. Handing it to a
+  // stylesheet parser returns nothing and erases the attribute - which is a
+  // deletion, and invisible to a layout diff when it only set a background.
+  expect(out).toContain("url('img/a.png')");
+  expect(out).toContain('color: red');
+  // An on* handler is a statement body, not a program. Same reasoning.
+  expect(out).toContain('doThing( 1 , 2 )');
+});
+
 /* -------------------------------- SVG ------------------------------- */
 
 test('SVG shrinks but keeps viewBox, ids and its accessible name', async ({ page }) => {

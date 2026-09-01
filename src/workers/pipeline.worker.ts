@@ -10,8 +10,10 @@ import {
   familyName,
   fontStyle,
 } from '../lib/sfnt';
+import { auditWithDomParser, type Graph } from '../lib/graph';
 import { formatUnicodeRange, partition } from '../lib/unicode-ranges';
 import type { FontSettings, ImageSettings, OutputFormat, TextSettings } from '../lib/settings';
+import type { Asset } from '../lib/types';
 import type {
   FontOutcome,
   FontSlice,
@@ -314,6 +316,70 @@ async function optimizeText(
   return base;
 }
 
+/* ------------------------------------------------------------------ *
+ * Phase 4 - folder mode
+ * ------------------------------------------------------------------ */
+
+/**
+ * Re-encode an image into its own format, at its own size.
+ *
+ * Folder mode deliberately does not turn an <img> into a <picture>. That would
+ * mean AVIF and WebP, which is a much bigger saving - but it also reparents the
+ * <img>, and a stylesheet written against `.gallery > img` stops matching. Law 2
+ * forbids removing nodes and the spirit of it forbids silently restructuring
+ * them, so folder mode changes bytes and never markup. The <picture> route stays
+ * where it was in Phase 1: a snippet the user pastes in knowingly.
+ */
+async function reencodeImage(
+  mime: string,
+  bytes: Uint8Array,
+  quality: number,
+  stripFirst: boolean,
+): Promise<{ bytes: Uint8Array; skipped?: string; warnings: string[] }> {
+  const warnings: string[] = [];
+
+  let source: ImageData;
+  try {
+    source = await decode(bytes, mime);
+  } catch {
+    return {
+      bytes,
+      skipped: 'Could not read this image, so it was copied unchanged.',
+      warnings,
+    };
+  }
+
+  let encoded: Uint8Array;
+  try {
+    if (mime === 'image/png') encoded = await encodePng(source);
+    else if (mime === 'image/webp') encoded = await encodeWebp(source, quality);
+    else if (mime === 'image/avif') encoded = await encodeAvif(source, quality);
+    else if (mime === 'image/jpeg') encoded = await encodeJpeg(source, quality);
+    else {
+      // GIF and anything else: re-encoding would change the format, and folder
+      // mode does not change formats.
+      return { bytes, skipped: 'This format is copied through unchanged.', warnings };
+    }
+  } catch {
+    return { bytes, skipped: 'This image could not be re-encoded, so it was left alone.', warnings };
+  }
+
+  if (encoded.byteLength >= bytes.byteLength) {
+    // Law 5: a bigger file is not a saving. Fall back to stripping metadata.
+    const stripped = stripFirst ? stripMetadata(bytes, mime) : { bytes, removed: 0 };
+    return {
+      bytes: stripped.bytes,
+      skipped:
+        stripped.removed > 0
+          ? 'Re-encoding made this bigger, so the original was kept with its camera metadata removed.'
+          : 'Already as small as it gets - the original was kept.',
+      warnings,
+    };
+  }
+
+  return { bytes: encoded, warnings };
+}
+
 const api = {
   async inspect(bytes: Uint8Array, mime: string, kind: string): Promise<Inspection> {
     const dims = kind === 'image' ? await dimensions(bytes, mime) : {};
@@ -448,6 +514,18 @@ const api = {
 
   optimizeFont,
   optimizeText,
+  reencodeImage,
+
+  /**
+   * Read a page the way a browser will and report any address the scanner could
+   * not place. Runs here because DOMParser is a browser API.
+   */
+  auditGraph(assets: Asset[], graph: Graph) {
+    const result = auditWithDomParser(assets, graph);
+    // `renameable` is a Set, which Comlink cannot return by reference; hand back
+    // the removals and let the caller apply them.
+    return { removed: result.removed, warnings: result.warnings };
+  },
 
   /** Characters used in one of the text files the user dropped in. */
   scanCodepoints(bytes: Uint8Array): number[] {

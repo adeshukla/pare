@@ -126,8 +126,21 @@ export async function minifyHtml(source: string, preset: TargetPreset): Promise<
     collapseWhitespace: true,
     conservativeCollapse: true,
 
-    minifyCSS: (css: string) => minifyCss(css, 'inline.css', preset),
-    minifyJS: (js: string) => minifyJs(js).then((r) => r.code),
+    // Only whole <style> and <script> elements are minified.
+    //
+    // html-minifier-terser also offers these callbacks a style attribute's
+    // declaration list and an on* handler's statement body. Neither is a
+    // stylesheet or a program, so handing them to Lightning CSS or esbuild
+    // parses them as empty and returns nothing - which silently erases the
+    // attribute. That is exactly the deletion Law 2 forbids, and it is invisible
+    // in a layout diff when the attribute only set a background image.
+    //
+    // Law 3 already treats an inline style attribute as untouchable. This is the
+    // same rule, applied one layer down.
+    minifyCSS: (css: string, type?: string) =>
+      type === undefined ? minifyCss(css, 'inline.css', preset) : css,
+    minifyJS: (js: string, type?: string) =>
+      type === undefined ? minifyJs(js).then((r) => r.code) : js,
 
     // Everything below this line is off on purpose. Law 2 forbids dropping
     // attributes, and each of these does exactly that:

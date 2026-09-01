@@ -196,6 +196,10 @@ test('keeps a whole font in one file when asked to', async ({ page }) => {
 
 test('minifies each text type and breaks the saving out per type', async ({ page }) => {
   await choose(page, 'text/site.css', 'text/app.js', 'text/page.html', 'text/logo.svg');
+
+  // The drop contains a page, so Pare offers whole-site mode by default. This
+  // test is about the per-type breakdown, which belongs to the files view.
+  await page.getByRole('radio', { name: /Just give me optimized files/ }).check();
   await page.getByRole('button', { name: /^Optimize 4 files$/ }).click();
 
   const savings = page.getByLabel('Savings');

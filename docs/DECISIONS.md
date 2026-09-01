@@ -118,7 +118,7 @@ phase is additive, so there is never a half-finished state.
 
 ## ADR-006 — Visual diff verifier before any risky operation
 
-**Status:** proposed
+**Status:** superseded by ADR-017
 
 **Context.** Phase 4 introduces reference rewriting, the first operation that can
 break a page.
@@ -385,3 +385,176 @@ and the font suite went from five timeouts to six passes in six seconds.
 
 **Consequence.** `wawoff2` is removed from the dependencies. The library table in
 ARCHITECTURE.md is stale on this row; this ADR is the current answer.
+
+---
+
+## ADR-015 — Rewrite by splicing byte ranges, never by re-serializing
+
+**Status:** accepted
+
+**Context.** Folder mode changes addresses inside HTML and CSS. The obvious way to
+do that is to parse with `DOMParser`, change the attribute, and serialize the
+document back out.
+
+**Decision.** Find the exact byte range of the address and splice the replacement
+into the original text. Never re-emit a whole file.
+
+**Reasoning.** Serializing a parsed document rewrites the entire file, not the
+part that changed. `DOMParser` normalises attribute quoting and casing, closes
+tags the author left open, moves stray elements into `<body>`, drops a doctype's
+internal subset, and re-encodes entities. Some of that is cosmetic. Some of it —
+relocating an element out of `<head>`, for instance — changes what renders. All of
+it is a change to a file nobody asked us to touch, which is Law 2 territory even
+where it happens to be harmless.
+
+Lightning CSS could re-emit stylesheets and would do it well, but the same
+argument applies: minification is a thing the user switched on, and rewriting an
+address is not.
+
+There is a second benefit, and it turned out to matter more than expected. When
+the only difference between input and output is the addresses, the Phase 5
+verifier has a sharp question to ask: *did anything move?* If the answer is ever
+yes, it is a real finding rather than noise from a reformat.
+
+**Consequence.** A small positional scanner (`src/lib/html-scan.ts`,
+`src/lib/css-refs.ts`) instead of leaning on a parser. It handles comments,
+raw-text elements, all three attribute quoting styles, and CSS strings; it is not
+a full HTML parser and does not try to be. ADR-016 covers what happens when it and
+a real parser disagree.
+
+---
+
+## ADR-016 — The scanner discovers, DOMParser audits
+
+**Status:** accepted
+
+**Context.** `docs/ARCHITECTURE.md` assigns `DOMParser` to HTML parsing, and
+AGENTS.md says never to add parse5 because the browser already has one. But
+rewriting needs byte offsets, and `DOMParser` does not expose them (ADR-015).
+
+**Decision.** The positional scanner finds references and their offsets.
+`DOMParser` then reads the same page and reports any URL-bearing attribute the
+scanner did not find. The audit can only **remove** a file's permission to be
+renamed, never grant it.
+
+**Reasoning.** Both tools are right about different things. The scanner sees the
+bytes as written, including attributes a parser discards — a duplicate `src`, an
+element in a position the parser relocates. `DOMParser` sees the page as a browser
+will actually build it. Where they agree, the reference is understood. Where they
+disagree, something about the markup is unusual enough that we do not know enough
+to move the file, and the safe response is to leave it alone.
+
+Making the audit one-directional is what keeps this honest. A disagreement can
+only ever cost a cache-busting hash.
+
+**Consequence.** The Law 3 logic stays pure and testable in Node, where the suite
+runs in under a second — worth a great deal for the code most likely to break
+someone's site. The audit runs in a worker, where `DOMParser` exists.
+
+---
+
+## ADR-017 — Verify by layout and resource loading, not by pixels
+
+**Status:** accepted, supersedes ADR-006
+
+**Context.** ADR-006 proposed rendering before and after in iframes and diffing
+them with `pixelmatch`, and left an open question: how to render local files with
+no server. Phase 5 had to answer both.
+
+**Decision.** Render both versions from `blob:` URLs and compare the **geometry of
+every element**, whether every image and stylesheet **loaded**, and whether any
+**background image stopped painting** — at 360, 768 and 1280 pixels. No pixel
+diff.
+
+**Reasoning.**
+
+*The open question, answered.* Every reference is rewritten to a blob URL and the
+page is loaded from one. Blob URLs minted by a page are same-origin with it, so
+`contentDocument` is readable. Stylesheets have to be minted before the pages that
+link them, or their own `url()`s resolve against a blob URL with no path.
+
+*Why not pixels.* A browser cannot screenshot an iframe — there is no API. The
+usual workaround, serializing into an SVG `foreignObject` and drawing that to a
+canvas, does not run scripts, taints the canvas, and silently drops any resource
+it could not inline. A pixel diff built on it would report differences that are
+artefacts of the capture, which is worse than no diff at all: it teaches the user
+to ignore the verifier.
+
+*Why geometry is the right question anyway.* Folder mode's failure mode is
+specific — a reference that no longer resolves. That shows up as an image with
+`naturalWidth === 0`, a stylesheet with no rules, or a box in the wrong place.
+Measuring those directly is more precise than inferring them from pixels.
+
+**Consequence and its limit.** Scripts do not run during verification, so a
+JavaScript-driven layout is compared in its pre-script state. That is deliberate —
+it makes the comparison deterministic — but it means the verifier checks the
+document as delivered, not as an application later assembles it.
+
+Geometry alone also misses anything that paints without occupying space. That is
+not hypothetical: an earlier build of the HTML minifier emptied every inline
+`style` attribute, and because a background image takes up no room, the layout
+diff called the site clean. The background-image check exists because of that
+miss, and the test for it names the bug.
+
+---
+
+## ADR-018 — Critical CSS extraction is not shipped
+
+**Status:** accepted
+
+**Context.** `docs/ROADMAP.md` lists "critical CSS extraction at mobile viewport,
+inline + async rest" as part of Phase 4. Everything else in that phase is built.
+This is not.
+
+**Decision.** Do not ship it. Revisit only if all three objections below can be
+answered.
+
+**Reasoning.**
+
+1. **It cannot be checked by the verifier that gates this phase.** The benefit
+   comes entirely from making the stylesheet non-render-blocking, which requires
+   swapping `rel` from a load handler. Verification runs with scripts disabled, on
+   purpose (ADR-017), so the swap never fires and the full stylesheet never
+   applies. Phase 4 is gated on being checkable; this is the one part of it that
+   would not be.
+2. **The benefit is a performance claim, and Law 5 forbids making one.** Inlining
+   critical CSS does not make a file smaller — it makes the page *start* sooner,
+   sometimes, depending on the server, the connection and the cache. Pare reports
+   bytes. It has nothing honest to say about this.
+3. **Getting the "above the fold" set wrong is a visible flash**, and the set
+   depends on content the user's server produces that we never see — the same
+   blindness as ADR-002, in a place where the failure is cosmetic rather than
+   fatal, but still a failure.
+
+**Alternatives considered.** Inlining the critical CSS while leaving the
+stylesheet render-blocking is verifiable and safe, and delivers nothing: the page
+still waits for the same file, now with duplicated bytes.
+
+**Consequence.** Phase 4 ships without it, and `ROADMAP.md` records the gap rather
+than implying it was delivered.
+
+---
+
+## ADR-019 — No Core Web Vitals number
+
+**Status:** accepted
+
+**Context.** `docs/ROADMAP.md` lists `web-vitals` measurement in the Phase 5
+preview.
+
+**Decision.** Do not measure or display it.
+
+**Reasoning.** The preview renders from `blob:` URLs, in a hidden iframe, with
+scripts disabled, on the machine doing the optimizing. LCP and CLS measured under
+those conditions describe that environment and nothing else — not the user's host,
+their TLS handshake, their visitor's phone, or their CDN. Publishing the number
+would be a performance claim built on a measurement that does not transfer, which
+is what Law 5 exists to prevent.
+
+`docs/SCOPE.md` already rules out Lighthouse scoring because it "invites
+performance claims we can't stand behind". A homegrown vitals number invites
+exactly the same ones.
+
+**Consequence.** The verifier answers "did anything change?", not "is it faster?".
+The savings report answers the second question in bytes, which is the only
+currency Pare deals in.
