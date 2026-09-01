@@ -10,7 +10,16 @@ import tseslint from 'typescript-eslint';
  */
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'coverage/**', 'playwright-report/**', 'test-results/**'],
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'playwright-report/**',
+      'test-results/**',
+      // Fixtures are test data. They are deliberately unminified and deliberately
+      // written the way a real site would be; linting them would invite edits
+      // that change what the minifier tests are actually testing.
+      'tests/fixtures/**',
+    ],
   },
 
   js.configs.recommended,
@@ -45,19 +54,43 @@ export default tseslint.config(
     // scripts/check-budget.mjs catches this at build time; this catches it in
     // the editor, with a message that says why.
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/workers/codecs.ts'],
+    ignores: ['src/workers/codecs.ts', 'src/workers/font-codecs.ts', 'src/workers/text-codecs.ts'],
     rules: {
-      'no-restricted-imports': [
+      // The TypeScript-aware version, because `import type` is erased and so
+      // costs nothing - only a value import can reach the bundle.
+      '@typescript-eslint/no-restricted-imports': [
         'error',
         {
           patterns: [
             {
-              group: ['@jsquash/*', 'thumbhash'],
+              group: [
+                '@jsquash/*',
+                'thumbhash',
+                'brotli-wasm',
+                'esbuild-wasm',
+                'esbuild-wasm/*',
+                'harfbuzzjs',
+                'harfbuzzjs/*',
+                'html-minifier-terser',
+                'lightningcss-wasm',
+                'svgo',
+                'svgo/*',
+                'woff2-encoder',
+                'woff2-encoder/*',
+              ],
+              allowTypeImports: true,
               message:
-                'Codecs are dynamically imported from src/workers/codecs.ts only. A static import puts the WASM in the initial bundle and breaks the 150 KB budget.',
+                'Codecs are dynamically imported from src/workers/*-codecs.ts only. A static import puts the library, and its WASM, in the initial bundle and breaks the 150 KB budget.',
             },
           ],
         },
+      ],
+
+      // clean-css and terser get a `process` shim from vite.config.ts. Pare's
+      // own code has no business reaching for Node globals.
+      'no-restricted-globals': [
+        'error',
+        { name: 'process', message: 'There is no Node runtime here. Pare is a browser app.' },
       ],
     },
   },

@@ -41,3 +41,82 @@ export const FORMAT_LABEL: Record<OutputFormat, string> = {
   webp: 'WebP',
   fallback: 'Original format',
 };
+
+/* ------------------------------------------------------------------ *
+ * Phase 2 - fonts
+ * ------------------------------------------------------------------ */
+
+/**
+ * `split` is the default because it deletes nothing: every glyph the font had
+ * still exists, spread across files the browser fetches only when a page needs
+ * that script.
+ *
+ * `used` genuinely removes glyphs, and a static scan cannot see text that comes
+ * from a database or from JavaScript. It is the same failure mode that keeps CSS
+ * purging out of scope, so it is opt-in and it warns. See ADR-011.
+ */
+export type SubsetMode = 'split' | 'used' | 'keep';
+
+export type FontSettings = {
+  mode: SubsetMode;
+  /** Extra characters to guarantee, on top of anything found by scanning. */
+  extraText: string;
+  /** `font-display` in the generated @font-face. */
+  display: 'swap' | 'optional' | 'fallback' | 'block' | 'auto';
+  preload: boolean;
+};
+
+export const FONT_DEFAULTS: FontSettings = {
+  mode: 'split',
+  extraText: '',
+  display: 'swap',
+  preload: true,
+};
+
+/* ------------------------------------------------------------------ *
+ * Phase 3 - text
+ * ------------------------------------------------------------------ */
+
+export type TextSettings = {
+  css: boolean;
+  js: boolean;
+  html: boolean;
+  svg: boolean;
+  /** Emit .gz siblings, built with the native CompressionStream. */
+  gzip: boolean;
+  /** Emit .br siblings. Costs a WASM download on first use. */
+  brotli: boolean;
+  /** Minimum browser versions handed to Lightning CSS. */
+  target: TargetPreset;
+};
+
+/**
+ * Explicit version floors rather than a browserslist query.
+ *
+ * `browserslist` resolves queries by reading config files and the caniuse
+ * database off disk, which is not something that happens in a browser tab.
+ * Naming the floors directly is honest about what is being targeted and costs
+ * no dependency. See ADR-013.
+ */
+export type TargetPreset = 'modern' | 'wide';
+
+export const TARGETS: Record<TargetPreset, { label: string; browsers: Record<string, number> }> = {
+  modern: {
+    label: 'Modern browsers',
+    browsers: { chrome: 111, firefox: 113, safari: 16.4, edge: 111 },
+  },
+  wide: {
+    label: 'Older browsers too',
+    browsers: { chrome: 90, firefox: 88, safari: 14, edge: 90 },
+  },
+};
+
+export const TEXT_DEFAULTS: TextSettings = {
+  css: true,
+  js: true,
+  html: true,
+  svg: true,
+  gzip: true,
+  brotli: false,
+  target: 'modern',
+};

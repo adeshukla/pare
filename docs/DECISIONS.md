@@ -246,3 +246,142 @@ would make the fast feedback loop slow for logic that has no browser dependency.
 
 **Consequence.** Two runners and two commands. CI runs them as separate jobs, so a
 logic regression is reported in under a minute without waiting on WASM.
+
+---
+
+## ADR-011 — Splitting is the default; dropping glyphs is opt-in
+
+**Status:** accepted
+
+**Context.** Phase 2 subsets fonts. Subsetting removes glyphs, and Law 2 says Pare
+does not remove things. The tension is real and had to be resolved before any of
+this shipped.
+
+The failure mode is the one ADR-002 already rejected for CSS. A static scan of the
+files a user drops in cannot see text that arrives from a database, a form, a
+translation file, or JavaScript. Subset a font to the characters visible in one
+folder of HTML and a page that later renders `Ł` or `ā` shows a tofu box — and
+nobody notices until a customer does.
+
+**Decision.** Two modes, and the safe one is the default.
+
+| Mode | What it does | Risk |
+|---|---|---|
+| **Split by script** (default) | One file per Unicode range, each with a `unicode-range` descriptor. No glyph is removed from the set. | none |
+| **Keep only characters I use** | Genuinely drops glyphs, based on scanned text plus anything pasted in. | real, and stated in the UI |
+| Keep everything | Repack as WOFF2, nothing else. | none |
+
+Splitting is lossless by construction: every codepoint the font could draw is in
+exactly one output file, including anything the named ranges miss, which lands in
+a leftover bucket. The browser downloads only the ranges a page uses, so a page in
+English never fetches the Cyrillic file — and a page in Russian still renders.
+
+The lossy mode carries a safety floor (printable ASCII is always kept, whatever
+the scan found) and always emits a warning naming how many characters were
+dropped. It is never selected for the user.
+
+**Reasoning.** The two modes differ in kind, not degree. Splitting changes *when*
+bytes are fetched; subsetting changes *whether the glyph exists*. Only the second
+can break a page, so only the second needs the user to choose it knowingly.
+
+**Consequence.** The default saves less than the tool could. On a font that is
+already a single-script webfont — the common case if the user downloaded from
+Google Fonts' CSS API — splitting saves very little, because there is nothing to
+split. The measured figure on such a font is around 10%. That is the honest
+number, and it is reported as such rather than quietly switching to the lossy
+mode to make the headline look better.
+
+---
+
+## ADR-012 — Minifiers are configured to rewrite, never to remove
+
+**Status:** accepted
+
+**Context.** Phase 3 runs four third-party minifiers. Every one of them ships
+defaults that delete things, because every one of them was built for a project
+that controls its whole codebase. Pare is not that; it optimizes files for a site
+it cannot see.
+
+**Decision.** Each tool is turned down to transformations that cannot change what
+renders or what script can reach. The deviations from each library's defaults:
+
+**HTML** (`html-minifier-terser`). Whitespace is collapsed *conservatively* —
+runs become one space, never nothing, because deleting the gap between `</em>` and
+`<strong>` visibly joins two words. Comments go. Every attribute stays:
+`removeEmptyAttributes`, `removeRedundantAttributes`, `collapseBooleanAttributes`,
+`removeAttributeQuotes` and `removeOptionalTags` are all off. Law 2 names dropping
+attributes explicitly, and `alt=""` is not noise.
+
+**SVG** (`svgo`). Off: `removeEmptyAttrs` and `removeDeprecatedAttrs` (attributes),
+`cleanupIds` and `removeUselessDefs` (another document can reach an id through
+`<use href="logo.svg#id">`), `removeHiddenElems` and `removeEmptyContainers`
+(script reverses both states), `removeUselessStrokeAndFill` and
+`removeUnknownsAndDefaults` (an external stylesheet SVGO cannot see may depend on
+them), `inlineStyles` (moving rules onto elements changes specificity, so a rule
+in the page's own stylesheet can stop winning).
+
+**CSS** (`lightningcss-wasm`). Minify and prefix only. `unusedSymbols` — Lightning's
+dead-rule remover — is exactly the feature ADR-002 rules out permanently, and it
+stays off.
+
+**JavaScript** (`esbuild-wasm`). Identifier mangling is enabled only for files that
+use `import`/`export`. A classic script's top-level names are globals, reachable
+from another script, an inline handler, or a string passed to `setTimeout`;
+renaming them is undecidable for the same reason ADR-003 rejected tree shaking
+them. Modules have real scope, so there it is safe.
+
+**Reasoning.** The savings that come from deleting are small and the trust cost is
+total. Minification without deletion still returns 50–65% on real files, measured;
+that is the whole prize, and it comes with no chance of breaking a page.
+
+**Consequence.** Pare's minified output is slightly larger than a maximally
+aggressive tool's. Every test in `tests/e2e/text.spec.ts` asserting that a rule, an
+attribute or a global survived is what holds this decision in place.
+
+---
+
+## ADR-013 — Named browser floors, not a browserslist query
+
+**Status:** accepted
+
+**Context.** `docs/ARCHITECTURE.md` assigns `browserslist` to feed target versions
+to Lightning CSS and esbuild.
+
+**Decision.** Ship two named presets with explicit minimum versions instead.
+
+**Reasoning.** `browserslist` resolves a query by reading configuration files from
+disk and consulting the caniuse database. Neither of those exists in a browser tab.
+Beyond the mechanics, a query like `> 0.5%` is opaque: the user cannot tell what it
+resolved to, and it silently changes meaning as the underlying data updates.
+"Modern browsers" and "Older browsers too", each pinned to stated versions, is
+something a user can check.
+
+**Consequence.** No custom queries. If a user needs a specific floor, they need a
+version of this that takes one — a smaller feature than vendoring a resolver.
+
+---
+
+## ADR-014 — `woff2-encoder` rather than `wawoff2`
+
+**Status:** accepted, supersedes the WOFF2 row of the table in ARCHITECTURE.md
+
+**Context.** `docs/ARCHITECTURE.md` assigns `wawoff2` for WOFF2 compression.
+
+**Decision.** Use `woff2-encoder`.
+
+**Reasoning.** `wawoff2` works correctly in Node — it round-tripped the test
+fixture there before any browser code existed. In a browser it hangs. Its wrapper
+builds a promise from the Emscripten module's `onRuntimeInitialized` callback; under
+Vite's CommonJS interop that callback never fires, and `compress` waits on it
+forever.
+
+A hang is worse than a crash. Law 5's "skip this file and warn" only works if the
+failure returns; a promise that never settles takes the pool slot with it and the
+run simply stops, with no message the user can act on.
+
+`woff2-encoder` is the same Google WOFF2 codec compiled to WASM, published as ESM
+with a promise API and no CommonJS in the path. It replaced wawoff2 in one function
+and the font suite went from five timeouts to six passes in six seconds.
+
+**Consequence.** `wawoff2` is removed from the dependencies. The library table in
+ARCHITECTURE.md is stale on this row; this ADR is the current answer.

@@ -1,6 +1,10 @@
 # Roadmap
 
 Phases are ordered and gated. Don't start N+1 until N ships publicly.
+
+> **Current deviation:** Phases 2 and 3 were built before Phase 1 was deployed, at
+> the project owner's explicit direction. The gate is otherwise intact — Phase 4
+> still must not ship without Phase 5. See `docs/STATUS.md`.
 Each phase is independently launchable — there is never a half-finished product.
 
 ---
@@ -42,7 +46,7 @@ synthetic and flatter the encoder badly. See `docs/STATUS.md`.
 
 ---
 
-## Phase 2 — Fonts
+## Phase 2 — Fonts ✅ **built**
 **~1 week**
 
 - Parse TTF/OTF/WOFF/WOFF2
@@ -52,21 +56,26 @@ synthetic and flatter the encoder badly. See `docs/STATUS.md`.
 - `@font-face` + `<link rel="preload">` snippet
 - `unicode-range` splitting for multi-script fonts
 
-**Exit:** a Google Fonts download shrinks 60%+ with correct rendering.
+**Exit:** a Google Fonts download shrinks 60%+ with correct rendering. — met;
+`tests/e2e/fonts.spec.ts` asserts it against a real font. Note that splitting an
+*already single-script* webfont saves far less; see ADR-011.
 
 ---
 
-## Phase 3 — Text assets
+## Phase 3 — Text assets ✅ **built**
 **~1 week**
 
-- `lightningcss-wasm` — minify, autoprefix, transpile to browserslist target
+- `lightningcss-wasm` — minify, autoprefix, transpile to a named browser floor
+  (not a browserslist query — see ADR-013)
 - `esbuild-wasm` minify; bundle only for `type="module"`
 - `html-minifier-terser`
 - `svgo`
 - gzip via `CompressionStream`, brotli via `brotli-wasm`
 - Optional deeper passes: `csso`, `terser`
 
-**Exit:** all four text types minified with a visible per-type breakdown.
+**Exit:** all four text types minified with a visible per-type breakdown. — met.
+Bundling `type="module"` graphs is deferred to Phase 4, which is where the asset
+graph that identifies entry points actually gets built.
 
 ---
 

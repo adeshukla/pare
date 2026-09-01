@@ -21,3 +21,36 @@ never a specific ratio. Do not quote numbers measured on it as product claims.
 EXIF-bearing and metadata-bearing variants are built inside `tests/unit/metadata.test.ts`
 by splicing real segments into these files, so the exact bytes under test are
 visible in the test rather than hidden in a binary.
+
+## Fonts
+
+`fonts/plex-mono.*` is IBM Plex Mono, Regular, Latin subset, under the SIL Open
+Font License — the licence is alongside them in `fonts/OFL.txt`. The `.woff` and
+`.woff2` came from the `@fontsource/ibm-plex-mono` package; the `.ttf` is the
+`.woff2` decompressed, so all three are the same outlines in three containers.
+
+**It is already a single-script subset**, which makes it a deliberately
+unflattering fixture for range splitting: there is almost nothing to split. That
+is the point — it keeps the split-mode numbers honest. Codepoint subsetting on the
+same file gives around 82%.
+
+Note the `.woff` and `.woff2` builds do not carry an identical table set: the
+WOFF2 keeps the hinting tables (`cvt `, `fpgm`, `prep`) and the WOFF does not. The
+tests check for the tables a font must have rather than asserting the two are
+equal.
+
+## Text
+
+`text/` holds one file per type the Phase 3 pipeline handles. They are written to
+be *hostile to an over-eager minifier*, and every oddity in them is load-bearing:
+
+| File | What it is testing |
+|---|---|
+| `site.css` | a rule referenced by no HTML we supply, which must survive (ADR-002) |
+| `app.js` | a classic script whose top-level names are globals and must keep them |
+| `module.mjs` | a real module, where mangling local names *is* safe |
+| `page.html` | attributes an aggressive minifier drops, and a word gap between two inline elements |
+| `logo.svg` | viewBox, `<title>`, `<desc>`, ids, an unreferenced def, a hidden group and an empty one |
+
+Do not tidy these files. Removing the "pointless" empty attribute or the unused
+CSS rule removes the test.

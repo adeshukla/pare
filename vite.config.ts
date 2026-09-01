@@ -6,10 +6,18 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   worker: { format: 'es' },
 
-  // The @jsquash codecs ship WASM alongside their ES modules. Pre-bundling them
-  // rewrites the import.meta.url the WASM is resolved against, so they are left
-  // alone and loaded as-is by the dynamic imports in src/workers/codecs.ts.
+  // clean-css and terser, which html-minifier-terser pulls in, read `process`
+  // at module scope. They are Node libraries being run somewhere they were not
+  // written for; this is the smallest shim that satisfies them. Pare's own code
+  // never touches `process` - eslint.config.js enforces that.
+  define: {
+    process: JSON.stringify({ env: {}, argv: [], platform: 'browser', version: '' }),
+  },
+
   optimizeDeps: {
+    // WASM-bearing packages resolve their binaries against import.meta.url.
+    // Pre-bundling rewrites that and the WASM stops loading, so these are served
+    // as authored and pulled in by the dynamic imports in src/workers/*-codecs.ts.
     exclude: [
       '@jsquash/avif',
       '@jsquash/jpeg',
@@ -17,7 +25,17 @@ export default defineConfig({
       '@jsquash/png',
       '@jsquash/resize',
       '@jsquash/webp',
+      'brotli-wasm',
+      'esbuild-wasm',
+      'lightningcss-wasm',
+      'woff2-encoder',
     ],
+
+    // These two are CommonJS underneath (clean-css, terser, relateurl), so they
+    // have to be pre-bundled to be importable at all. Naming them here also
+    // pins the work to server start-up: discovered later, Vite re-optimizes and
+    // reloads the page mid-run, which tears down whatever was mid-encode.
+    include: ['html-minifier-terser', 'svgo/browser'],
   },
 
   build: {

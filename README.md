@@ -2,8 +2,8 @@
 
 **Optimize your site's assets in the browser. No install, no upload, no account.**
 
-Drop in your images. Pare compresses, converts and resizes them, then hands you
-the optimized files plus the HTML to paste in.
+Drop in your images, fonts and code. Pare compresses, converts and resizes them,
+then hands you the optimized files plus the HTML to paste in.
 
 Everything runs locally in your browser. Your files never leave your computer.
 
@@ -29,22 +29,34 @@ and it gives you the `<picture>` tag, not just the file.
 
 - **Images** — resize to a breakpoint ladder, encode AVIF + WebP alongside an
   optimized original-format fallback, strip metadata, generate blur placeholders
-- **Snippets** — paste-ready `<picture>` with `srcset`, `sizes`, `width`, `height`
-- **Report** — honest before/after bytes, per file and total, with every skip
+- **Fonts** — split by writing system so a page downloads only the scripts it
+  uses, or subset to the characters you actually use; WOFF2 out
+- **Code** — minify CSS, JavaScript, HTML and SVG; prefix CSS to a stated browser
+  floor; write gzip and brotli siblings
+- **Snippets** — paste-ready `<picture>` and `@font-face`, with `srcset`, `sizes`,
+  `width`, `height` and `unicode-range` filled in
+- **Report** — honest before/after bytes, per file and per type, with every skip
   explained in plain language
 
 ## What is planned
 
-Not built yet. See [`docs/ROADMAP.md`](docs/ROADMAP.md) — phases ship one at a time.
+See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-- **Fonts** — subset to the glyphs you actually use, convert to WOFF2
-- **Text** — minify HTML, CSS, JS, SVG; autoprefix; gzip and brotli siblings
 - **Folder mode** — crawl an entry HTML file and rewrite what can be safely rewritten
+- **Verification** — render before and after, pixel-diff, and refuse to hand you a
+  page that changed
 
 ## What it deliberately doesn't do
 
-Pare never removes CSS rules, DOM nodes, or JS exports. It compresses and converts;
-it doesn't delete. That constraint is the point: **Pare cannot break your site.**
+Pare never removes CSS rules, DOM nodes, attributes, or JS exports. It compresses
+and converts; it doesn't delete. That constraint is the point: **Pare cannot break
+your site.**
+
+It runs the same minifiers everyone else does, configured to rewrite and never to
+remove — so an unused CSS rule survives, `alt=""` survives, an SVG id survives, and
+a global in a classic script keeps its name. The one operation that can genuinely
+lose something, subsetting a font down to the characters it can see, is off by
+default and says so when you turn it on.
 
 Tools that strip "unused" CSS can't know what a database-driven or JS-toggled class
 will be, and they break pages nobody tests. We'd rather ship a smaller win you can trust.

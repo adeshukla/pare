@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pare fixture page</title>
+    <!-- A comment. Safe to remove: the browser renders nothing for it. -->
+    <link rel="stylesheet" href="site.css" />
+  </head>
+  <body>
+    <h1 class="card">Pare</h1>
+
+    <!-- The space between these two inline elements is a real word gap.
+         Collapsing it to nothing would render "smallerand". -->
+    <p>Make it <em>smaller</em> <strong>and</strong> keep it working.</p>
+
+    <!-- Every attribute below is one an aggressive minifier would drop.
+         Law 2 says attributes are never dropped, so all of them must survive. -->
+    <img src="hero.jpg" alt="" width="800" height="400" />
+    <input type="text" name="email" value="" disabled="disabled" />
+    <script type="text/javascript" src="app.js"></script>
+    <a href="/docs" title="">Docs</a>
+
+    <p>Characters worth keeping: &copy; &amp; &#8212; caf&eacute; na&iuml;ve.</p>
+  </body>
+</html>

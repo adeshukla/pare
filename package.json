@@ -28,11 +28,18 @@
     "@jsquash/png": "^3.1.1",
     "@jsquash/resize": "^2.1.1",
     "@jsquash/webp": "^1.5.0",
+    "brotli-wasm": "^3.0.1",
     "comlink": "^4.4.2",
+    "esbuild-wasm": "^0.28.2",
     "fflate": "^0.8.3",
+    "harfbuzzjs": "^1.6.1",
+    "html-minifier-terser": "^7.2.0",
+    "lightningcss-wasm": "^1.33.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "thumbhash": "^0.1.1"
+    "svgo": "^4.1.0",
+    "thumbhash": "^0.1.1",
+    "woff2-encoder": "^2.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

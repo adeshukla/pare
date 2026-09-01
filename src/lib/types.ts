@@ -125,3 +125,57 @@ export type ImageOutcome = {
   warnings: string[];
   skipped?: string;
 };
+
+/* ------------------------------------------------------------------ *
+ * Phase 2 - fonts
+ * ------------------------------------------------------------------ */
+
+/** One emitted font file and the slice of Unicode it serves. */
+export type FontSlice = {
+  /** Range name, or 'subset' / 'whole font' for the single-file modes. */
+  name: string;
+  path: string;
+  bytes: Uint8Array;
+  codepoints: number;
+  /** Ready for the `unicode-range` descriptor. Empty means "no restriction". */
+  unicodeRange: string;
+};
+
+export type FontOutcome = {
+  inputPath: string;
+  bytesBefore: number;
+  family: string;
+  weight: number;
+  italic: boolean;
+  container: string;
+  /** How many codepoints the source font could draw. */
+  codepointsBefore: number;
+  /** How many survive across every emitted slice. */
+  codepointsAfter: number;
+  slices: FontSlice[];
+  /** The file a Latin-script page actually downloads. */
+  bytesServed: number;
+  warnings: string[];
+  skipped?: string;
+};
+
+/* ------------------------------------------------------------------ *
+ * Phase 3 - text
+ * ------------------------------------------------------------------ */
+
+export type TextKind = 'css' | 'js' | 'html' | 'svg';
+
+export type TextOutcome = {
+  inputPath: string;
+  kind: TextKind;
+  bytesBefore: number;
+  /** After minification, before any transport compression. */
+  bytesAfter: number;
+  minified: Uint8Array;
+  /** Sibling files: gzip and brotli, when enabled. */
+  siblings: Array<{ path: string; bytes: Uint8Array; encoding: 'gzip' | 'brotli' }>;
+  /** Smallest transport encoding available, which is what a server would send. */
+  bytesTransport: number;
+  warnings: string[];
+  skipped?: string;
+};

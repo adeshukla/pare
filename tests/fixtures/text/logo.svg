@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <title>Pare logo</title>
+  <desc>A green circle behind a dark square.</desc>
+  <defs>
+    <linearGradient id="brandFade">
+      <stop offset="0%" stop-color="#1c6b4a" />
+      <stop offset="100%" stop-color="#14161a" />
+    </linearGradient>
+    <!-- Not referenced in this file. Another document can still reach it with
+         <use href="logo.svg#altFade">, so it must not be treated as dead. -->
+    <linearGradient id="altFade">
+      <stop offset="0%" stop-color="#8a5a12" />
+      <stop offset="100%" stop-color="#fbfbf9" />
+    </linearGradient>
+  </defs>
+
+  <circle id="halo" cx="60" cy="60" r="52" fill="url(#brandFade)" />
+  <rect x="38" y="38" width="44" height="44" fill="#fbfbf9" />
+
+  <!-- Hidden until script shows it. Removing it breaks the interaction. -->
+  <g id="tooltipLayer" style="display:none">
+    <rect x="0" y="0" width="120" height="24" fill="#14161a" />
+  </g>
+
+  <!-- An empty container a script fills in later. -->
+  <g id="annotations"></g>
+</svg>

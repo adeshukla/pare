@@ -1,0 +1,24 @@
+/* Pare fixture stylesheet. Deliberately unminified. */
+:root {
+  --brand: #1c6b4a;
+  --paper: #fbfbf9;
+}
+
+.card {
+  background : var(--paper) ;
+  border-radius : 4px ;
+  padding : 16px   24px ;
+  user-select: none;
+}
+
+/* This rule is never referenced by page.html. It must survive: ADR-002. */
+.promo-banner--seasonal {
+  display: grid;
+  gap: 8px;
+}
+
+.card:hover { color : var(--brand) ; }
+
+@media (min-width: 768px) {
+  .card { padding: 24px 32px; }
+}

@@ -5,9 +5,11 @@ import { servedVariant, type Row } from '../lib/optimize';
 /**
  * The report. Law 5 shapes every number on this screen:
  *
- *   - "After" is the single file a browser downloads at full width, not the sum
- *     of every variant we emitted. Summing them would understate the win; showing
- *     only the smallest thumbnail would overstate it.
+ *   - "After" is what a visitor downloads, not the sum of everything emitted.
+ *     For an image that is the smallest full-width variant; for a split font the
+ *     first slice; for text the smallest transport encoding. Summing every file
+ *     would understate the win, and quoting the smallest thumbnail would invent
+ *     one nobody experiences.
  *   - Percentages round down.
  *   - Anything skipped says so, in the same table, in a sentence.
  */
@@ -36,13 +38,56 @@ function Snippet({ code }: { code: string }) {
   );
 }
 
+/** before, after, and the one-line detail shown under the file name. */
+function measure(row: Row): { before: number; after?: number; detail: string } {
+  const image = row.outcome;
+  if (image) {
+    return {
+      before: image.bytesBefore,
+      after: image.skipped ? image.bytesBefore : servedVariant(image)?.bytes.byteLength,
+      detail: image.naturalWidth > 0 ? image.naturalWidth + '×' + image.naturalHeight : '',
+    };
+  }
+
+  const font = row.font;
+  if (font) {
+    const detail = font.skipped
+      ? font.container.toUpperCase()
+      : font.slices.length > 1
+        ? font.slices.length + ' files · ' + font.codepointsAfter + ' characters'
+        : font.codepointsAfter + ' of ' + font.codepointsBefore + ' characters';
+    return { before: font.bytesBefore, after: font.skipped ? font.bytesBefore : font.bytesServed, detail };
+  }
+
+  const text = row.text;
+  if (text) {
+    const encodings = text.siblings.map((s) => (s.encoding === 'gzip' ? 'gzip' : 'brotli'));
+    return {
+      before: text.bytesBefore,
+      after: text.bytesTransport,
+      detail: encodings.length > 0 ? 'minified + ' + encodings.join(' + ') : 'minified',
+    };
+  }
+
+  const raw = row.inspection?.rawBytes ?? row.asset.bytes.byteLength;
+  return { before: raw, after: undefined, detail: 'copied unchanged' };
+}
+
 function FileRow({ row }: { row: Row }) {
   const [open, setOpen] = useState(false);
-  const outcome = row.outcome;
-  const served = outcome ? servedVariant(outcome) : undefined;
-  const after = outcome?.skipped ? outcome.bytesBefore : served?.bytes.byteLength;
-  const before = outcome?.bytesBefore ?? row.inspection?.rawBytes ?? row.asset.bytes.byteLength;
+  const { before, after, detail } = measure(row);
   const cut = after === undefined ? 0 : reduction(before, after);
+
+  const skipped = row.outcome?.skipped ?? row.font?.skipped ?? row.text?.skipped;
+  const warnings = [
+    ...(row.outcome?.warnings ?? []),
+    ...(row.font?.warnings ?? []),
+    ...(row.text?.warnings ?? []),
+  ];
+
+  const emitted =
+    row.outcome?.variants.reduce((n, v) => n + v.bytes.byteLength, 0) ??
+    row.font?.slices.reduce((n, s) => n + s.bytes.byteLength, 0);
 
   return (
     <>
@@ -61,14 +106,7 @@ function FileRow({ row }: { row: Row }) {
           )}
         </td>
 
-        <td className="tnum py-2 pr-4 text-xs text-muted">
-          {outcome && outcome.naturalWidth > 0
-            ? outcome.naturalWidth + '×' + outcome.naturalHeight
-            : row.inspection?.width
-              ? row.inspection.width + '×' + row.inspection.height
-              : ''}
-        </td>
-
+        <td className="py-2 pr-4 text-xs text-muted">{detail}</td>
         <td className="tnum py-2 pr-4 text-right">{bytes(before)}</td>
         <td className="tnum py-2 pr-4 text-right">
           {row.state === 'done' ? (after === undefined ? '—' : bytes(after)) : ''}
@@ -86,18 +124,18 @@ function FileRow({ row }: { row: Row }) {
         </td>
       </tr>
 
-      {outcome?.skipped && (
+      {skipped && (
         <tr className="border-b border-rule/60">
           <td colSpan={5} className="pb-3 text-xs text-warn">
-            {outcome.skipped}
+            {skipped}
           </td>
         </tr>
       )}
 
-      {outcome && outcome.warnings.length > 0 && (
+      {warnings.length > 0 && (
         <tr className="border-b border-rule/60">
           <td colSpan={5} className="pb-3 text-xs text-warn">
-            {outcome.warnings.map((w, i) => (
+            {warnings.map((w, i) => (
               <p key={i}>{w}</p>
             ))}
           </td>
@@ -108,15 +146,13 @@ function FileRow({ row }: { row: Row }) {
         <tr className="border-b border-rule/60">
           <td colSpan={5} className="pb-4">
             <Snippet code={row.snippet} />
-            {outcome && (
+            {emitted !== undefined && (
               <p className="mt-2 text-xs text-muted">
-                {outcome.variants.length} files emitted, {bytes(
-                  outcome.variants.reduce((n, v) => n + v.bytes.byteLength, 0),
-                )}{' '}
-                in total. A visitor downloads one of them.
-                {outcome.placeholder &&
+                {(row.outcome?.variants.length ?? row.font?.slices.length ?? 0)} files emitted,{' '}
+                {bytes(emitted)} in total. A visitor downloads one of them.
+                {row.outcome?.placeholder &&
                   ' The inline placeholder adds ' +
-                    bytes(outcome.placeholder.length) +
+                    bytes(row.outcome.placeholder.length) +
                     ' to your HTML.'}
               </p>
             )}
@@ -133,7 +169,7 @@ export function Results({ rows }: { rows: Row[] }) {
       <thead>
         <tr className="border-b border-rule text-xs tracking-wide text-muted uppercase">
           <th className="py-2 pr-4 text-left font-normal">File</th>
-          <th className="py-2 pr-4 text-left font-normal">Size</th>
+          <th className="py-2 pr-4 text-left font-normal">Detail</th>
           <th className="py-2 pr-4 text-right font-normal">Before</th>
           <th className="py-2 pr-4 text-right font-normal">After</th>
           <th className="py-2 text-right font-normal">Change</th>

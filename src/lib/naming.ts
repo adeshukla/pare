@@ -33,3 +33,19 @@ export function variantPath(sourcePath: string, width: number, mime: string): st
   const file = `${stem}-${width}.${ext}`;
   return dir ? `${dir}/${file}` : file;
 }
+
+/** `fonts/plex.woff2` sliced to latin becomes `fonts/plex-latin.woff2`. */
+export function fontSlicePath(sourcePath: string, slice: string): string {
+  const { dir, stem } = splitPath(sourcePath);
+  const file = slice ? `${stem}-${slice}.woff2` : `${stem}.woff2`;
+  return dir ? `${dir}/${file}` : file;
+}
+
+/**
+ * Minified text keeps its own name - it is a drop-in replacement for the file it
+ * came from, and renaming it would mean rewriting whatever points at it, which
+ * is Phase 4's job and gated on Law 3.
+ */
+export function compressedPath(sourcePath: string, encoding: 'gzip' | 'brotli'): string {
+  return `${sourcePath}.${encoding === 'gzip' ? 'gz' : 'br'}`;
+}

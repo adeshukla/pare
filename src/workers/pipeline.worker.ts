@@ -1,9 +1,27 @@
 import * as Comlink from 'comlink';
+import { fromText, union, withSafetyFloor } from '../lib/codepoints';
 import { resolveWidths, scaledHeight } from '../lib/ladder';
 import { stripMetadata } from '../lib/metadata';
-import { variantPath } from '../lib/naming';
-import type { ImageSettings, OutputFormat } from '../lib/settings';
-import type { ImageOutcome, Variant } from '../lib/types';
+import { compressedPath, fontSlicePath, splitPath, variantPath } from '../lib/naming';
+import {
+  coveredCodepoints,
+  decodeWoff,
+  detectContainer,
+  familyName,
+  fontStyle,
+} from '../lib/sfnt';
+import { formatUnicodeRange, partition } from '../lib/unicode-ranges';
+import type { FontSettings, ImageSettings, OutputFormat, TextSettings } from '../lib/settings';
+import type {
+  FontOutcome,
+  FontSlice,
+  ImageOutcome,
+  TextKind,
+  TextOutcome,
+  Variant,
+} from '../lib/types';
+import { fromWoff2, subsetFont, toWoff2 } from './font-codecs';
+import { brotli, gzip, minifyCss, minifyHtml, minifyJs, minifySvg } from './text-codecs';
 import {
   decode,
   encodeAvif,
@@ -71,6 +89,230 @@ async function encodeOne(
 }
 
 const formatLabel = (f: OutputFormat) => (f === 'fallback' ? 'original format' : f.toUpperCase());
+
+
+/* ------------------------------------------------------------------ *
+ * Phase 2 - fonts
+ * ------------------------------------------------------------------ */
+
+async function toSfnt(bytes: Uint8Array, container: string): Promise<Uint8Array> {
+  if (container === 'woff') return decodeWoff(bytes);
+  if (container === 'woff2') return fromWoff2(bytes);
+  return bytes;
+}
+
+async function optimizeFont(
+  path: string,
+  bytes: Uint8Array,
+  settings: FontSettings,
+  used: number[],
+  onProgress: Progress,
+): Promise<FontOutcome> {
+  const base: FontOutcome = {
+    inputPath: path,
+    bytesBefore: bytes.byteLength,
+    family: splitPath(path).stem,
+    weight: 400,
+    italic: false,
+    container: 'unknown',
+    codepointsBefore: 0,
+    codepointsAfter: 0,
+    slices: [],
+    bytesServed: bytes.byteLength,
+    warnings: [],
+  };
+
+  const container = detectContainer(bytes);
+  if (!container) {
+    return { ...base, skipped: 'This does not look like a font file. It was copied unchanged.' };
+  }
+  base.container = container;
+
+  onProgress(0.1, 'Unpacking ' + container.toUpperCase());
+  let sfnt: Uint8Array;
+  try {
+    sfnt = await toSfnt(bytes, container);
+  } catch {
+    return {
+      ...base,
+      skipped: 'Could not unpack this font - the file may be damaged. It was copied unchanged.',
+    };
+  }
+
+  base.family = familyName(sfnt) ?? base.family;
+  const style = fontStyle(sfnt);
+  base.weight = style.weight;
+  base.italic = style.italic;
+
+  const covered = coveredCodepoints(sfnt);
+  base.codepointsBefore = covered.size;
+  if (covered.size === 0) {
+    return {
+      ...base,
+      skipped: 'Could not read which characters this font contains, so nothing was changed.',
+    };
+  }
+
+  // Work out what each emitted file should hold before encoding anything.
+  type Plan = { name: string; slug: string; codepoints: number[] | undefined };
+  let plans: Plan[];
+
+  if (settings.mode === 'keep') {
+    plans = [{ name: 'whole font', slug: '', codepoints: undefined }];
+  } else if (settings.mode === 'split') {
+    plans = partition(covered).map((b) => ({
+      name: b.name,
+      slug: b.name,
+      codepoints: b.codepoints,
+    }));
+  } else {
+    const wanted = withSafetyFloor(union([new Set(used), fromText(settings.extraText)]));
+    const keep = [...wanted].filter((cp) => covered.has(cp));
+    if (keep.length === 0) {
+      return {
+        ...base,
+        skipped:
+          'None of the characters found on your pages are in this font, so nothing was removed. Drop your HTML or CSS in alongside the font, or paste your text in, and try again.',
+      };
+    }
+    base.warnings.push(
+      'Kept ' +
+        keep.length +
+        ' of ' +
+        covered.size +
+        ' characters, based on the text you supplied. Any character your pages produce later - from a database, a form, or JavaScript - will not be in this font. Use range splitting instead if you are not certain.',
+    );
+    plans = [{ name: 'subset', slug: 'subset', codepoints: keep }];
+  }
+
+  const slices: FontSlice[] = [];
+  for (const [i, plan] of plans.entries()) {
+    onProgress(0.2 + (0.75 * i) / plans.length, plan.name);
+    try {
+      const sliced = plan.codepoints ? await subsetFont(sfnt, plan.codepoints) : sfnt;
+      const woff2 = await toWoff2(sliced);
+      slices.push({
+        name: plan.name,
+        path: fontSlicePath(path, plan.slug),
+        bytes: woff2,
+        codepoints: plan.codepoints?.length ?? covered.size,
+        unicodeRange: plan.codepoints ? formatUnicodeRange(plan.codepoints) : '',
+      });
+    } catch {
+      base.warnings.push(
+        'Could not build the ' +
+          plan.name +
+          ' file for this font. That part was skipped; the rest was kept.',
+      );
+    }
+  }
+
+  if (slices.length === 0) {
+    return { ...base, skipped: 'Nothing could be built from this font. It was copied unchanged.' };
+  }
+
+  onProgress(1, 'Done');
+  return {
+    ...base,
+    slices,
+    codepointsAfter: slices.reduce((n, s) => n + s.codepoints, 0),
+    // Ranges come out in priority order, so the first slice is what a
+    // Latin-script page downloads. The rest are fetched only when needed.
+    bytesServed: slices[0]!.bytes.byteLength,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Phase 3 - text
+ * ------------------------------------------------------------------ */
+
+async function minifyByKind(
+  source: string,
+  kind: TextKind,
+  path: string,
+  settings: TextSettings,
+): Promise<string | undefined> {
+  if (kind === 'css') return settings.css ? minifyCss(source, path, settings.target) : undefined;
+  if (kind === 'js') return settings.js ? (await minifyJs(source)).code : undefined;
+  if (kind === 'html') return settings.html ? minifyHtml(source, settings.target) : undefined;
+  return settings.svg ? minifySvg(source, path) : undefined;
+}
+
+async function optimizeText(
+  path: string,
+  kind: TextKind,
+  bytes: Uint8Array,
+  settings: TextSettings,
+  onProgress: Progress,
+): Promise<TextOutcome> {
+  const base: TextOutcome = {
+    inputPath: path,
+    kind,
+    bytesBefore: bytes.byteLength,
+    bytesAfter: bytes.byteLength,
+    minified: bytes,
+    siblings: [],
+    bytesTransport: bytes.byteLength,
+    warnings: [],
+  };
+
+  const encoder = new TextEncoder();
+  onProgress(0.1, 'Minifying');
+
+  let output = bytes;
+  let skipped: string | undefined;
+
+  try {
+    const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const minified = await minifyByKind(source, kind, path, settings);
+
+    if (minified === undefined) {
+      skipped = 'Minifying ' + kind.toUpperCase() + ' is turned off, so this was copied unchanged.';
+    } else {
+      const candidate = encoder.encode(minified);
+      if (candidate.byteLength >= bytes.byteLength) {
+        // Already minified, or too small to gain. Never ship a bigger file.
+        skipped = 'Already as small as it gets - the original was kept.';
+      } else {
+        output = candidate;
+      }
+    }
+  } catch {
+    skipped =
+      'Could not read this file as text, so it was copied unchanged. It may use an unusual encoding, or contain a syntax error.';
+  }
+
+  base.minified = output;
+  base.bytesAfter = output.byteLength;
+  base.skipped = skipped;
+
+  onProgress(0.6, 'Compressing');
+  let smallest = output.byteLength;
+
+  if (settings.gzip) {
+    try {
+      const gz = await gzip(output);
+      base.siblings.push({ path: compressedPath(path, 'gzip'), bytes: gz, encoding: 'gzip' });
+      smallest = Math.min(smallest, gz.byteLength);
+    } catch {
+      base.warnings.push('Could not build the gzip copy of this file.');
+    }
+  }
+
+  if (settings.brotli) {
+    try {
+      const br = await brotli(output);
+      base.siblings.push({ path: compressedPath(path, 'brotli'), bytes: br, encoding: 'brotli' });
+      smallest = Math.min(smallest, br.byteLength);
+    } catch {
+      base.warnings.push('Could not build the brotli copy of this file.');
+    }
+  }
+
+  base.bytesTransport = smallest;
+  onProgress(1, 'Done');
+  return base;
+}
 
 const api = {
   async inspect(bytes: Uint8Array, mime: string, kind: string): Promise<Inspection> {
@@ -202,6 +444,14 @@ const api = {
 
     onProgress(1, 'Done');
     return { ...base, variants };
+  },
+
+  optimizeFont,
+  optimizeText,
+
+  /** Characters used in one of the text files the user dropped in. */
+  scanCodepoints(bytes: Uint8Array): number[] {
+    return [...fromText(new TextDecoder('utf-8', { fatal: false }).decode(bytes))];
   },
 };
 

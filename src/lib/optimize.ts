@@ -1,10 +1,21 @@
 import * as Comlink from 'comlink';
 import { runAll } from './pool';
 import { defaultImgWidth } from './ladder';
+import { fontFaceSnippet } from './font-snippet';
 import { pictureSnippet } from './snippet';
-import type { ImageSettings } from './settings';
-import type { Asset, ImageOutcome, Variant } from './types';
+import type { FontSettings, ImageSettings, TextSettings } from './settings';
+import type { Asset, FontOutcome, ImageOutcome, TextKind, TextOutcome, Variant } from './types';
 import type { Inspection } from '../workers/pipeline.worker';
+
+export type Settings = {
+  image: ImageSettings;
+  font: FontSettings;
+  text: TextSettings;
+};
+
+/** Asset kinds the text pipeline handles, and that the font scanner reads. */
+const TEXT_KINDS = new Set<Asset['kind']>(['css', 'js', 'html', 'svg']);
+export const isTextKind = (kind: Asset['kind']): kind is TextKind => TEXT_KINDS.has(kind);
 
 /** One input file and everything we learned about it. */
 export type Row = {
@@ -14,6 +25,8 @@ export type Row = {
   progress: number;
   label: string;
   outcome?: ImageOutcome;
+  font?: FontOutcome;
+  text?: TextOutcome;
   inspection?: Inspection;
   snippet?: string;
 };
@@ -39,54 +52,128 @@ export function servedVariant(outcome: ImageOutcome): Variant | undefined {
   return full.reduce((best, v) => (v.bytes.byteLength < best.bytes.byteLength ? v : best));
 }
 
+/* ------------------------------------------------------------------ *
+ * Report
+ * ------------------------------------------------------------------ */
+
+export type ReportKind = 'image' | 'font' | 'css' | 'js' | 'html' | 'svg';
+
+export const REPORT_LABEL: Record<ReportKind, string> = {
+  image: 'Images',
+  font: 'Fonts',
+  css: 'CSS',
+  js: 'JavaScript',
+  html: 'HTML',
+  svg: 'SVG',
+};
+
+export type KindLine = {
+  kind: ReportKind;
+  count: number;
+  before: number;
+  /** What a visitor downloads. */
+  served: number;
+  /** Every file emitted for this kind. */
+  emitted: number;
+  skipped: number;
+};
+
 export type Report = {
   files: number;
-  images: number;
-  /** Sum of the original image files. */
+  lines: KindLine[];
   bytesBefore: number;
-  /** Sum of what a browser fetches at full width, best format. */
   bytesServed: number;
-  /** Every file we emit, across all widths and formats. This is the zip size. */
   bytesEmitted: number;
   skipped: number;
   warnings: number;
   metadataRemoved: number;
 };
 
-export function summarise(rows: Row[]): Report {
-  const report: Report = {
-    files: rows.length,
-    images: 0,
-    bytesBefore: 0,
-    bytesServed: 0,
-    bytesEmitted: 0,
-    skipped: 0,
-    warnings: 0,
-    metadataRemoved: 0,
-  };
-
-  for (const row of rows) {
-    const outcome = row.outcome;
-    if (!outcome) continue;
-    report.images++;
-    report.bytesBefore += outcome.bytesBefore;
-    report.warnings += outcome.warnings.length;
-    report.metadataRemoved += outcome.metadataRemoved;
-    if (outcome.skipped) {
-      report.skipped++;
-      // A skipped file is copied through unchanged, so it costs what it cost.
-      report.bytesServed += outcome.bytesBefore;
-      report.bytesEmitted += outcome.bytesBefore;
-      continue;
-    }
-    report.bytesServed += servedVariant(outcome)?.bytes.byteLength ?? outcome.bytesBefore;
-    for (const v of outcome.variants) report.bytesEmitted += v.bytes.byteLength;
-  }
-
-  return report;
+function blank(kind: ReportKind): KindLine {
+  return { kind, count: 0, before: 0, served: 0, emitted: 0, skipped: 0 };
 }
 
-function buildSnippet(outcome: ImageOutcome, settings: ImageSettings): string | undefined {
+export function summarise(rows: Row[]): Report {
+  const lines = new Map<ReportKind, KindLine>();
+  const line = (kind: ReportKind) => {
+    const existing = lines.get(kind) ?? blank(kind);
+    lines.set(kind, existing);
+    return existing;
+  };
+
+  let warnings = 0;
+  let metadataRemoved = 0;
+
+  for (const row of rows) {
+    if (row.outcome) {
+      const outcome = row.outcome;
+      const l = line('image');
+      l.count++;
+      l.before += outcome.bytesBefore;
+      warnings += outcome.warnings.length;
+      metadataRemoved += outcome.metadataRemoved;
+
+      if (outcome.skipped) {
+        l.skipped++;
+        // A skipped file is copied through unchanged, so it costs what it cost.
+        l.served += outcome.bytesBefore;
+        l.emitted += outcome.bytesBefore;
+      } else {
+        l.served += servedVariant(outcome)?.bytes.byteLength ?? outcome.bytesBefore;
+        for (const v of outcome.variants) l.emitted += v.bytes.byteLength;
+      }
+    }
+
+    if (row.font) {
+      const font = row.font;
+      const l = line('font');
+      l.count++;
+      l.before += font.bytesBefore;
+      warnings += font.warnings.length;
+
+      if (font.skipped) {
+        l.skipped++;
+        l.served += font.bytesBefore;
+        l.emitted += font.bytesBefore;
+      } else {
+        l.served += font.bytesServed;
+        for (const s of font.slices) l.emitted += s.bytes.byteLength;
+      }
+    }
+
+    if (row.text) {
+      const text = row.text;
+      const l = line(text.kind);
+      l.count++;
+      l.before += text.bytesBefore;
+      warnings += text.warnings.length;
+      if (text.skipped) l.skipped++;
+      // A server sends the smallest encoding it has; that is what a visitor pays.
+      l.served += text.bytesTransport;
+      l.emitted += text.bytesAfter + text.siblings.reduce((n, s) => n + s.bytes.byteLength, 0);
+    }
+  }
+
+  const ordered: ReportKind[] = ['image', 'font', 'css', 'js', 'html', 'svg'];
+  const out = ordered.map((k) => lines.get(k)).filter((l): l is KindLine => l !== undefined);
+
+  return {
+    files: rows.length,
+    lines: out,
+    bytesBefore: out.reduce((n, l) => n + l.before, 0),
+    bytesServed: out.reduce((n, l) => n + l.served, 0),
+    bytesEmitted: out.reduce((n, l) => n + l.emitted, 0),
+    skipped: out.reduce((n, l) => n + l.skipped, 0),
+    warnings,
+    metadataRemoved,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Snippets
+ * ------------------------------------------------------------------ */
+
+function imageSnippet(outcome: ImageOutcome, settings: ImageSettings): string | undefined {
   if (outcome.variants.length === 0) return undefined;
   const widths = [...new Set(outcome.variants.map((v) => v.width))].sort((a, b) => a - b);
   const imgWidth = defaultImgWidth(widths);
@@ -112,48 +199,92 @@ function buildSnippet(outcome: ImageOutcome, settings: ImageSettings): string | 
   });
 }
 
+function fontSnippet(outcome: FontOutcome, settings: FontSettings): string | undefined {
+  if (outcome.slices.length === 0) return undefined;
+  return fontFaceSnippet({
+    family: outcome.family,
+    weight: outcome.weight,
+    italic: outcome.italic,
+    slices: outcome.slices.map((s) => ({
+      path: s.path,
+      unicodeRange: s.unicodeRange,
+      name: s.name,
+    })),
+    display: settings.display,
+    preload: settings.preload,
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Run
+ * ------------------------------------------------------------------ */
+
 /**
- * Run every asset through the pool. Images get the full pipeline; everything else
- * is inspected and passed through untouched, because Phase 1 is images only.
+ * Run every asset through the pool, dispatching on what it turned out to be.
+ * Anything we have no pipeline for is inspected and copied through untouched.
  *
- * `onUpdate` fires on every progress tick, so the UI can show what each worker is
+ * `onUpdate` fires on every progress tick so the UI can show what each worker is
  * doing rather than a spinner.
  */
 export async function optimizeAssets(
   assets: Asset[],
-  settings: ImageSettings,
+  settings: Settings,
   onUpdate: (index: number, patch: Partial<Row>) => void,
 ): Promise<Row[]> {
+  // Subsetting to "characters you actually use" needs to know what those are
+  // before any font job starts, so this one barrier is unavoidable. It only runs
+  // in that mode, and reading a few text files is cheap next to a codec.
+  let used: number[] = [];
+  if (settings.font.mode === 'used' && assets.some((a) => a.kind === 'font')) {
+    const texts = assets.filter((a) => isTextKind(a.kind));
+    const found = await runAll(texts, (asset, api) => api.scanCodepoints(asset.bytes));
+    used = [...new Set(found.flat())];
+  }
+
   const indexed = assets.map((asset, index) => ({ asset, index }));
 
   return runAll(indexed, async ({ asset, index }, api): Promise<Row> => {
     onUpdate(index, { state: 'running', progress: 0, label: 'Starting' });
 
-    if (asset.kind !== 'image') {
-      const inspection = await api.inspect(asset.bytes, asset.mime, asset.kind);
-      const row: Row = { ...newRow(asset), state: 'done', progress: 1, label: '', inspection };
-      onUpdate(index, row);
-      return row;
-    }
-
-    const outcome = await api.optimizeImage(
-      asset.path,
-      asset.mime,
-      asset.bytes,
-      settings,
-      // Comlink cannot structured-clone a function; it has to be proxied.
-      Comlink.proxy((progress: number, label: string) => onUpdate(index, { progress, label })),
+    // Comlink cannot structured-clone a function; it has to be proxied.
+    const report = Comlink.proxy((progress: number, label: string) =>
+      onUpdate(index, { progress, label }),
     );
 
-    const row: Row = {
-      ...newRow(asset),
-      state: 'done',
-      progress: 1,
-      label: '',
-      outcome,
-      snippet: buildSnippet(outcome, settings),
+    const done = (patch: Partial<Row>): Row => {
+      const row: Row = { ...newRow(asset), state: 'done', progress: 1, label: '', ...patch };
+      onUpdate(index, row);
+      return row;
     };
-    onUpdate(index, row);
-    return row;
+
+    if (asset.kind === 'image') {
+      const outcome = await api.optimizeImage(
+        asset.path,
+        asset.mime,
+        asset.bytes,
+        settings.image,
+        report,
+      );
+      return done({ outcome, snippet: imageSnippet(outcome, settings.image) });
+    }
+
+    if (asset.kind === 'font') {
+      const font = await api.optimizeFont(asset.path, asset.bytes, settings.font, used, report);
+      return done({ font, snippet: fontSnippet(font, settings.font) });
+    }
+
+    if (isTextKind(asset.kind)) {
+      const text = await api.optimizeText(
+        asset.path,
+        asset.kind,
+        asset.bytes,
+        settings.text,
+        report,
+      );
+      return done({ text });
+    }
+
+    const inspection = await api.inspect(asset.bytes, asset.mime, asset.kind);
+    return done({ inspection });
   });
 }
