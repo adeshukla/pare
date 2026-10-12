@@ -19,3 +19,5 @@
 
 # Keep generated lockfile diffs out of review noise.
 package-lock.json linguist-generated=true -diff
+*.bmp binary
+*.heic binary

@@ -8,7 +8,7 @@ export type FontFaceInput = {
   weight: number;
   italic: boolean;
   /** One entry per emitted file: the path plus the range it serves. */
-  slices: Array<{ path: string; unicodeRange: string; name: string }>;
+  slices: Array<{ path: string; unicodeRange: string; name: string; woffPath?: string }>;
   display: string;
   /** Emit a `<link rel=preload>` for the first slice. */
   preload: boolean;
@@ -41,7 +41,9 @@ export function fontFaceSnippet(input: FontFaceInput): string {
       `  font-style: ${input.italic ? 'italic' : 'normal'};`,
       `  font-weight: ${input.weight};`,
       `  font-display: ${input.display};`,
-      `  src: url("${slice.path}") format("woff2");`,
+      slice.woffPath
+        ? `  src: url("${slice.path}") format("woff2"),\n       url("${slice.woffPath}") format("woff");`
+        : `  src: url("${slice.path}") format("woff2");`,
     );
     if (slice.unicodeRange) lines.push(`  unicode-range: ${slice.unicodeRange};`);
     lines.push('}', '');

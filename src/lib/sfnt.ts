@@ -96,6 +96,74 @@ export async function decodeWoff(bytes: Uint8Array): Promise<Uint8Array> {
   return out;
 }
 
+async function deflate(bytes: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([bytes as BufferSource])
+    .stream()
+    .pipeThrough(new CompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/**
+ * Wrap an sfnt (TTF/OTF) as WOFF 1.0: each table zlib-compressed where that
+ * helps, the directory rewritten. For browsers older than WOFF2 - Safari 11 and
+ * earlier - so the legacy browser range still gets a compressed webfont.
+ * The inverse of decodeWoff, using the browser's own deflate.
+ */
+export async function encodeWoff(sfnt: Uint8Array): Promise<Uint8Array> {
+  const view = new DataView(sfnt.buffer, sfnt.byteOffset, sfnt.byteLength);
+  const flavor = view.getUint32(0);
+  const numTables = view.getUint16(4);
+
+  type Entry = { tag: number; checksum: number; data: Uint8Array; origLength: number };
+  const entries: Entry[] = [];
+  for (let i = 0; i < numTables; i++) {
+    const at = 12 + i * 16;
+    const offset = view.getUint32(at + 8);
+    const length = view.getUint32(at + 12);
+    const raw = sfnt.subarray(offset, offset + length);
+    const packed = await deflate(raw);
+    entries.push({
+      tag: view.getUint32(at),
+      checksum: view.getUint32(at + 4),
+      // Stored raw when compression does not help, which WOFF signals by
+      // equal lengths.
+      data: packed.byteLength < raw.byteLength ? packed : raw,
+      origLength: length,
+    });
+  }
+  // The WOFF directory must be sorted by tag.
+  entries.sort((a, b) => a.tag - b.tag);
+
+  const pad = (n: number) => (4 - (n % 4)) % 4;
+  const headerSize = 44 + numTables * 20;
+  const total = entries.reduce((n, e) => n + e.data.byteLength + pad(e.data.byteLength), headerSize);
+  const sfntSize = entries.reduce((n, e) => n + e.origLength + pad(e.origLength), 12 + numTables * 16);
+
+  const out = new Uint8Array(total);
+  const o = new DataView(out.buffer);
+  out.set([0x77, 0x4f, 0x46, 0x46], 0); // 'wOFF'
+  o.setUint32(4, flavor);
+  o.setUint32(8, total);
+  o.setUint16(12, numTables);
+  o.setUint32(16, sfntSize);
+  o.setUint16(20, 1); // majorVersion
+
+  let at = headerSize;
+  entries.forEach((e, i) => {
+    const record = 44 + i * 20;
+    o.setUint32(record, e.tag);
+    o.setUint32(record + 4, at);
+    o.setUint32(record + 8, e.data.byteLength);
+    o.setUint32(record + 12, e.origLength);
+    o.setUint32(record + 16, e.checksum);
+    out.set(e.data, at);
+    at += e.data.byteLength + pad(e.data.byteLength);
+  });
+
+  return out;
+}
+
+
 /* ------------------------------------------------------------------ *
  * Table directory
  * ------------------------------------------------------------------ */

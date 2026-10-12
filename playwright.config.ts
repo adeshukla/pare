@@ -40,15 +40,30 @@ export default defineConfig({
    * support differs from Chrome's. Those are precisely the branches under test.
    */
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /offline/ },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, testIgnore: /offline/ },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testIgnore: /offline/ },
+    // The service worker only registers in a production build (ADR-023), so this
+    // one runs against the built site rather than the dev server.
+    {
+      name: 'offline',
+      testMatch: /offline\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4173' },
+    },
   ],
 
-  webServer: {
-    command: 'npm run dev -- --port 5173 --strictPort',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: 'npm run dev -- --port 5173 --strictPort',
+      url: 'http://localhost:5173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: 'npx vite build && npx vite preview --port 4173 --strictPort',
+      url: 'http://localhost:4173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    },
+  ],
 });

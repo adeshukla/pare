@@ -31,7 +31,8 @@ see `docs/STATUS.md`.
 - `@jsquash` decode: JPEG, PNG, WebP, AVIF, GIF first frame
 - Resize ladder — default 400/800/1200/1600/2400, user-editable
 - Encode AVIF + WebP + optimized original fallback
-- Quality slider with live size preview per format
+- Quality slider with live size preview per format — built after launch prep:
+  one dropped image, encoded at 800px as the slider settles
 - EXIF stripping
 - ThumbHash placeholders
 - `<picture>` snippet with `srcset`, `sizes`, `width`, `height`, `loading`, `decoding`
@@ -88,6 +89,8 @@ synthetic and flatter the encoder badly. See `docs/STATUS.md`.
 - Content hashing + rewriting for resolvable references only
 - Warning list for everything skipped, in plain language
 - Complete `dist/` output
+- Opt-in AVIF + WebP through `<picture>`, fenced and verified (ADR-021) — added
+  after the phase shipped; it closes the gap between site mode and files mode
 - ~~Critical CSS extraction at mobile viewport, inline + async rest~~ — **not
   shipped.** It is the one part of this phase the Phase 5 verifier cannot check,
   and its benefit is a performance claim Law 5 forbids. See ADR-018.

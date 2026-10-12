@@ -12,6 +12,8 @@ export default defineConfig({
   // never touches `process` - eslint.config.js enforces that.
   define: {
     process: JSON.stringify({ env: {}, argv: [], platform: 'browser', version: '' }),
+    // Names this build's offline cache, so a deploy replaces the last one.
+    __BUILD_ID__: JSON.stringify(Date.now().toString(36)),
   },
 
   optimizeDeps: {
@@ -28,6 +30,7 @@ export default defineConfig({
       'brotli-wasm',
       'esbuild-wasm',
       'lightningcss-wasm',
+      'libheif-js',
       'woff2-encoder',
     ],
 

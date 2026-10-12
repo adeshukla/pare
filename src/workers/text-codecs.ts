@@ -8,7 +8,7 @@
  * is made. See ADR-012.
  */
 
-import { TARGETS, type TargetPreset } from '../lib/settings';
+import { TARGETS, type JsLevel, type TargetPreset } from '../lib/settings';
 
 // Type-only imports. These are erased at compile time, so naming the modules
 // here does not pull a single byte of codec into the bundle - the real loading
@@ -43,22 +43,68 @@ function encodeTargets(preset: TargetPreset): Record<string, number> {
   return out;
 }
 
-export async function minifyCss(
+/**
+ * A leading comment that something other than a browser reads, kept verbatim:
+ * a WordPress theme header (WordPress reads "Theme Name:" from style.css and a
+ * theme without it disappears from the admin), or a "/*!" licence notice.
+ * Minifiers drop comments; these are not decoration. ADR-027.
+ */
+export function protectedHeader(source: string): string | undefined {
+  const match = /^\s*(\/\*[\s\S]*?\*\/)/.exec(source);
+  const comment = match?.[1];
+  if (!comment) return undefined;
+  if (comment.startsWith('/*!') || /^[\s*]*(Theme Name|Plugin Name)\s*:/im.test(comment)) return comment;
+  return undefined;
+}
+
+export type Minified = { code: string; map?: string };
+
+/** Lightning CSS, with the protected header put back on top and an optional map. */
+export async function minifyCssMapped(
   source: string,
   filename: string,
   preset: TargetPreset,
-): Promise<string> {
+  sourceMap = false,
+): Promise<Minified> {
   const { transform } = await loadLightning();
   const result = transform({
     filename,
     code: new TextEncoder().encode(source),
     minify: true,
     targets: encodeTargets(preset),
+    sourceMap,
     // `unusedSymbols` is Lightning's dead-rule remover. It is exactly the
     // feature ADR-002 rules out permanently, and it stays off.
     errorRecovery: true,
   });
-  return new TextDecoder().decode(result.code);
+  let code = new TextDecoder().decode(result.code);
+  const header = protectedHeader(source);
+  if (header && !code.startsWith(header)) code = header + '\n' + code;
+  return {
+    code,
+    map:
+      sourceMap && result.map
+        ? withSourceContent(new TextDecoder().decode(result.map), filename, source)
+        : undefined,
+  };
+}
+
+export async function minifyCss(source: string, filename: string, preset: TargetPreset): Promise<string> {
+  return (await minifyCssMapped(source, filename, preset)).code;
+}
+
+/**
+ * Make a map self-contained: the original text travels inside it, so the map
+ * alone is enough to get the original file back. That is the point of offering
+ * maps at all - "how do I get my code back" has an answer even without the
+ * original folder.
+ */
+function withSourceContent(map: string, filename: string, source: string): string {
+  const parsed = JSON.parse(map) as { sources?: string[]; sourcesContent?: Array<string | null> };
+  const base = filename.slice(filename.lastIndexOf('/') + 1);
+  parsed.sources = (parsed.sources?.length ? parsed.sources : [base]).map(() => base);
+  parsed.sourcesContent = parsed.sources.map(() => source);
+  return JSON.stringify(parsed);
 }
 
 /* ------------------------------------------------------------------ *
@@ -86,34 +132,99 @@ export function isModule(source: string): boolean {
   return /^\s*(import\s|export\s|export\{|import\{)/m.test(source);
 }
 
+/** esbuild's form of a preset: every browser, at its floor version. */
+export function esbuildTargets(preset: TargetPreset): string[] {
+  const { browsers } = TARGETS[preset];
+  const out = Object.entries(browsers).map(([name, version]) => name + version);
+  // iOS ships Safari's engine at Safari's version numbers.
+  if (browsers.safari) out.push('ios' + browsers.safari);
+  return out;
+}
+
 /**
- * Classic scripts get whitespace and syntax minification only.
- *
- * Top-level names in a classic script are globals. Another script, an inline
- * handler, or a string passed to setTimeout can reach them, and none of that is
- * visible to a minifier. Renaming them is the same undecidable problem as tree
- * shaking a classic script, which ADR-003 already settled. Modules have real
- * scope, so there identifier mangling is safe.
+ * Code that reads its own names at runtime, where renaming even a local
+ * variable changes behaviour. Found in a file, it keeps every name. ADR-028.
  */
-export async function minifyJs(source: string): Promise<{ code: string; module: boolean }> {
+const NAME_SENSITIVE: Array<[RegExp, string]> = [
+  [/\beval\s*\(/, 'eval()'],
+  [/\bnew\s+Function\s*\(/, 'new Function()'],
+  [/\bwith\s*\(/, 'a with statement'],
+  [/arguments\.callee/, 'arguments.callee'],
+  [/\bangular\s*\.\s*module\b|\$inject\b/, 'AngularJS-style dependency injection'],
+  [/\.toString\(\)\s*\.\s*(match|replace|split|indexOf)\(/, 'a function reading its own source'],
+];
+
+export function nameSensitive(source: string): string | undefined {
+  return NAME_SENSITIVE.find(([pattern]) => pattern.test(source))?.[1];
+}
+
+export type JsOptions = {
+  level?: JsLevel;
+  preset?: TargetPreset;
+  sourceMap?: boolean;
+  filename?: string;
+};
+
+export type JsResult = {
+  code: string;
+  module: boolean;
+  map?: string;
+  /** Set when names were kept despite the level, with the reason. */
+  kept?: string;
+};
+
+/**
+ * esbuild, at one of three levels (ADR-028):
+ *
+ *   safe      whitespace and syntax only. No name changes anywhere.
+ *   balanced  also shortens local names - variables inside functions, and
+ *             everything inside a module. Top-level names in a classic script
+ *             are globals that another script or an inline handler can reach,
+ *             and esbuild never renames those. This is the default.
+ *   max       balanced, then a second pass with Terser (see squeezeJs).
+ *
+ * Code that reads its own names (eval, AngularJS injection...) is held at safe
+ * whatever the level, and the result says why.
+ *
+ * Output never uses syntax newer than the chosen browsers support, and syntax
+ * newer than that in the input is rewritten down to it.
+ */
+export async function minifyJs(source: string, options: JsOptions = {}): Promise<JsResult> {
   const esbuild = await loadEsbuild();
   const module = isModule(source);
+  const level = options.level ?? 'balanced';
+  const kept = level !== 'safe' ? nameSensitive(source) : undefined;
+  const rename = level !== 'safe' && !kept;
+  const filename = options.filename ?? (module ? 'module.js' : 'script.js');
+
   const result = await esbuild.transform(source, {
     minifyWhitespace: true,
     minifySyntax: true,
-    minifyIdentifiers: module,
+    minifyIdentifiers: rename,
     format: module ? 'esm' : undefined,
     legalComments: 'inline',
-    target: 'es2017',
+    target: esbuildTargets(options.preset ?? 'wide'),
+    sourcemap: options.sourceMap ? 'external' : false,
+    sourcefile: filename.slice(filename.lastIndexOf('/') + 1),
+    sourcesContent: true,
   });
-  return { code: result.code, module };
+  return {
+    code: result.code,
+    module,
+    map: options.sourceMap && result.map ? result.map : undefined,
+    kept,
+  };
 }
 
 /* ------------------------------------------------------------------ *
  * HTML
  * ------------------------------------------------------------------ */
 
-export async function minifyHtml(source: string, preset: TargetPreset): Promise<string> {
+export async function minifyHtml(
+  source: string,
+  preset: TargetPreset,
+  level: JsLevel = 'balanced',
+): Promise<string> {
   const { minify } = await import('html-minifier-terser');
   return minify(source, {
     // Safe: comments carry nothing the browser renders. Conditional comments
@@ -140,7 +251,9 @@ export async function minifyHtml(source: string, preset: TargetPreset): Promise<
     minifyCSS: (css: string, type?: string) =>
       type === undefined ? minifyCss(css, 'inline.css', preset) : css,
     minifyJS: (js: string, type?: string) =>
-      type === undefined ? minifyJs(js).then((r) => r.code) : js,
+      type === undefined
+        ? minifyJs(js, { level: level === 'max' ? 'balanced' : level, preset }).then((r) => r.code)
+        : js,
 
     // Everything below this line is off on purpose. Law 2 forbids dropping
     // attributes, and each of these does exactly that:
@@ -263,6 +376,7 @@ export type BundleResult = {
 export async function bundleModule(
   entry: string,
   files: Record<string, string>,
+  preset: TargetPreset = 'wide',
 ): Promise<BundleResult> {
   const esbuild = await loadEsbuild();
   const warnings: string[] = [];
@@ -300,7 +414,7 @@ export async function bundleModule(
     bundle: true,
     write: false,
     format: 'esm',
-    target: 'es2017',
+    target: esbuildTargets(preset),
     minify: true,
     metafile: true,
     legalComments: 'inline',
@@ -372,13 +486,53 @@ export async function bundleModule(
  * top-level declaration - those are globals, and anything on the page can reach
  * them. For a module it is safe to turn on, because the file has real scope.
  */
-export async function squeezeJs(js: string, module: boolean): Promise<string> {
+/** The newest syntax a preset's browsers all read, in Terser's terms. */
+const TERSER_ECMA: Record<TargetPreset, 2017 | 2020> = { legacy: 2017, wide: 2017, modern: 2020 };
+
+/**
+ * The "max" level's second pass. Same rule as esbuild: never a top-level name
+ * in a classic script. Function arity (`fn.length`) is preserved, since some
+ * libraries dispatch on it, and Safari 10's scoping bug is worked around for
+ * the legacy preset.
+ */
+export async function squeezeJs(
+  js: string,
+  module: boolean,
+  preset: TargetPreset = 'wide',
+): Promise<string> {
+  return (await squeezeJsMapped(js, module, preset)).code;
+}
+
+export async function squeezeJsMapped(
+  js: string,
+  module: boolean,
+  preset: TargetPreset = 'wide',
+  inputMap?: string,
+  filename = 'script.js',
+): Promise<Minified> {
   const { minify } = await import('terser');
   const result = await minify(js, {
     module,
-    compress: { toplevel: module },
+    ecma: TERSER_ECMA[preset],
+    safari10: preset === 'legacy',
+    compress: { toplevel: module, passes: 2, keep_fargs: true },
     mangle: { toplevel: module },
     format: { comments: 'some' },
+    sourceMap: inputMap
+      ? {
+          content: inputMap,
+          filename: filename.slice(filename.lastIndexOf('/') + 1),
+          includeSources: true,
+        }
+      : false,
   });
-  return result.code ?? js;
+  return {
+    code: result.code ?? js,
+    map:
+      typeof result.map === 'string'
+        ? result.map
+        : result.map
+          ? JSON.stringify(result.map)
+          : undefined,
+  };
 }

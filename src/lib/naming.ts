@@ -35,9 +35,9 @@ export function variantPath(sourcePath: string, width: number, mime: string): st
 }
 
 /** `fonts/plex.woff2` sliced to latin becomes `fonts/plex-latin.woff2`. */
-export function fontSlicePath(sourcePath: string, slice: string): string {
+export function fontSlicePath(sourcePath: string, slice: string, ext: 'woff2' | 'woff' = 'woff2'): string {
   const { dir, stem } = splitPath(sourcePath);
-  const file = slice ? `${stem}-${slice}.woff2` : `${stem}.woff2`;
+  const file = slice ? `${stem}-${slice}.${ext}` : `${stem}.${ext}`;
   return dir ? `${dir}/${file}` : file;
 }
 

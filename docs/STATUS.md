@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-09-01
+Updated: 2026-10-13
 
 | | |
 |---|---|
@@ -10,9 +10,9 @@ Updated: 2026-09-01
 | **Phase 3 — Text assets** | ✅ complete (CSSO rejected — ADR-020) |
 | **Phase 4 — Folder mode** | ✅ complete (critical CSS not shipped — ADR-018) |
 | **Phase 5 — Verification** | ✅ complete (web-vitals not shipped — ADR-019) |
-| Live at | — **the deploy pipeline has never run.** See below. |
-| Initial JS | **80.6 KB gzipped** of a 150 KB budget |
-| Tests | 183 unit (Vitest) + 189 browser (63 × Chromium, Firefox, WebKit), all passing |
+| Live at | — **the deploy job runs and fails at its Publish step.** See below. |
+| Initial JS | **97.8 KB gzipped** of a 150 KB budget |
+| Tests | 228 unit (Vitest) + 87 browser tests × Chromium, Firefox, WebKit, plus 1 offline test against the built site — all passing; 4 skips where an engine cannot synthesise a drop or paste |
 
 > **Phases 2 through 5 were built ahead of the Phase 1 launch gate**, at the
 > project owner's direction. The gate that was **not** relaxed is the one that
@@ -33,11 +33,13 @@ shipped, each with an ADR arguing the case rather than a silent omission:
 | `web-vitals` in preview | 5 | Measured from a blob URL on the optimizing machine it describes nothing about the user's host. Law 5. ADR-019 |
 | CSSO second CSS pass | 3 | Silently deletes at-rules it is too old to parse. Law 2, no safe configuration. ADR-020 |
 
-**The deploy has never been exercised.** There is no git remote, so `ci.yml` has
-never executed — not once. `cloudflare/wrangler-action@v3` is pinned on
-assumption; the action version and the `pages deploy` invocation are both
-unverified. "Just add the secrets" is optimistic: nobody has watched this
-pipeline work.
+**The deploy has run, and failed.** The repo is on GitHub
+(`adeshukla/pare`) and CI runs on every push. On the last push to `master`
+(`10f3d97`, 2026-09-01) the verify and browser jobs passed and **Deploy to
+Cloudflare Pages failed at its Publish step** — consistent with the two
+Cloudflare secrets not being set, though the log needs a signed-in look to
+confirm. `pare.pages.dev` belongs to someone else, so the project will get a
+suffixed `*.pages.dev` address; `pare.devstash.me` is the address that matters.
 
 ---
 
@@ -54,10 +56,41 @@ before any download is offered.
 | | Images | Fonts | CSS / JS / HTML / SVG |
 |---|---|---|---|
 | Files mode | AVIF + WebP + original, resize ladder, ThumbHash, `<picture>` | split by script, or subset; WOFF2; `@font-face` | minify, prefix, gzip/brotli siblings, optional Terser pass |
-| Site mode | re-encoded in place, same format | opt-in subset to the site's own characters (WOFF2 only) | minified in place, opt-in module bundling |
+| Site mode | re-encoded in place, same format; opt-in AVIF + WebP through `<picture>` (ADR-021) | opt-in subset to the site's own characters (WOFF2 only) | minified in place, opt-in module bundling |
 
 Every risky option is off by default and says why: font subsetting, module
-bundling, and the deeper Terser pass.
+bundling, the deeper Terser pass, and offering AVIF/WebP in site mode.
+
+Each quality slider shows what it costs — one dropped image, encoded at 800px in
+the worker pool as the slider settles. Animated GIFs are copied unchanged rather
+than flattened to their first frame (ADR-022). The interface follows the system
+light/dark setting.
+
+After a run, an image can be compared with its original under a draggable
+divider, at fit or actual size. Files can be dropped anywhere on the page or
+pasted. Settings are remembered in this browser. On Chromium the output can be
+saved straight into an empty folder (ADR-024). After one visit the built site
+works offline for every tool used once (ADR-023).
+
+**Inputs** also include HEIC (iPhone photos) and BMP (ADR-026). In whole-site mode
+a BMP becomes a PNG under a new name where every reference can be rewritten;
+HEIC is left alone there and handled in files mode.
+
+**WordPress and PHP** (ADR-027): server templates are copied byte for byte, any
+file they name keeps its name, and a folder with templates is never renamed at
+all. A theme with no `.html` is still treated as a site. The `Theme Name:`
+header and `/*!` licence comments survive CSS minification.
+
+**JavaScript minification** has three levels — Safe, Balanced (default),
+Maximum — and code that reads its own names is held at Safe automatically.
+Source maps holding the original code are written in files mode. CSS and
+JavaScript output follow the chosen browser range (Latest, Since 2021 by default,
+Since 2017), and Since 2017 adds WOFF fonts (ADR-028). Images have Smallest /
+Balanced / Crisp quality presets.
+
+**Zips** are built in chunks, with already-compressed files stored rather than
+deflated again. Hashed assets are served `immutable` for a year. See
+`docs/SCALING.md` for how Pare scales and what to build next.
 
 ## Measured
 
@@ -133,6 +166,14 @@ Each of these was invisible until something real ran against it.
     entire drop — the user dropped files and the page just sat there. Ingest now
     skips an entry it cannot read and falls back to the plain file list if the
     walk yields nothing. Found only by running in a second engine.
+11. **The verifier's "image stopped loading" check could never fire.** It asked
+    `element instanceof HTMLImageElement` of elements inside an iframe, which
+    belong to that frame's realm, so the answer was always false. Geometry caught
+    most broken images anyway — but not one with a fixed width and height. It now
+    checks the tag name, and a test breaks exactly that case.
+12. **Expanding one snippet stretched the results table to 31,000px**, pushing
+    the Copy button off-screen. A ThumbHash data URI is one long line and an
+    auto-layout table sizes columns to it. The table is fixed-layout now.
 
 ## CI/CD
 
@@ -151,42 +192,52 @@ default, subsetting opt-in · ADR-012 minifiers rewrite, never remove · ADR-013
 named browser floors · ADR-014 `woff2-encoder` over `wawoff2` · ADR-015 splice,
 never re-serialize · ADR-016 scanner discovers, DOMParser audits · ADR-017 verify
 by layout, not pixels *(supersedes 006)* · ADR-018 no critical CSS · ADR-019 no
-Core Web Vitals · ADR-020 no CSSO
+Core Web Vitals · ADR-020 no CSSO · ADR-021 site-mode `<picture>`, opt-in and
+fenced · ADR-022 animated GIFs copied unchanged · ADR-023 offline after first
+use · ADR-024 save only into an empty folder · ADR-025 visual direction and
+motion language · ADR-026 HEIC and BMP · ADR-027 server templates and
+WordPress · ADR-028 minification levels, maps and browser ranges
 
 ---
 
 ## Before launch
 
-- [ ] Push to a remote and watch CI run once — the pipeline is untested
-- [ ] Create the Cloudflare Pages project, set the two secrets
-- [ ] Point `pare.devstash.me` at it
+- [x] Push to a remote and watch CI run — it runs; verify and browser jobs pass
+- [ ] Create the Cloudflare Pages project, set `CLOUDFLARE_API_TOKEN` and
+      `CLOUDFLARE_ACCOUNT_ID`, then re-run the deploy job and read its log
+- [ ] Point `pare.devstash.me` at it (custom domain on the Pages project)
 - [ ] Run folder mode against a real WordPress or static-site export
 - [ ] Measure real savings on real photographs and a full multi-script font
 
 ## Known gaps
 
-- **WebKit has no `OffscreenCanvas`**, so every image decode there falls through
-  to the WASM decoders rather than the browser's own. It works and the output is
-  identical, but it costs a few hundred KB of extra download and is slower.
-  `AGENTS.md` specifies "main-thread canvas" as the fallback for this; that path
-  is not built, because the decode runs in a worker where no such canvas exists.
-  Worth revisiting if Safari telemetry ever justifies it.
+- **WebKit has no `OffscreenCanvas` in workers**, so every image decode there
+  falls through to the WASM decoders rather than the browser's own. It works and
+  the output is identical, but it costs a few hundred KB of extra download and is
+  slower. That fallback is now exercised directly in all three engines
+  (`codecs.spec.ts`). `AGENTS.md`'s "main-thread canvas" fallback is not built,
+  because the decode runs in a worker where no such canvas exists.
 - **Firefox is roughly 7× slower** through the image pipeline — 80s for twenty
   photographs against 11s in Chromium. Correctness is identical; it is WASM
   encode throughput, not a bug. Worth knowing before quoting timings.
-- **Site mode does not emit `<picture>`.** Modern formats need `<source type=…>`,
-  which reparents the `<img>` and can break `.gallery > img`. Site mode changes
-  bytes, never markup — so a whole-site run gets in-place re-encoding (20–40%)
-  rather than the AVIF win files mode delivers (70–90%). This is the largest
-  remaining product gap, and it is a design decision rather than an oversight.
 - **Verification runs with scripts disabled**, so a JavaScript-assembled layout is
   compared in its pre-script state (ADR-017). Module bundling is therefore
-  unverifiable and opt-in.
-- **Largest test site is 12 files.** Nothing has been run against a real theme
-  with hundreds of assets; the verifier renders pages × 3 viewports serially and
-  would be slow there.
-- **OOM handling is a skip, not a retry.** `ARCHITECTURE.md` specifies
-  downscale-retry-then-skip.
-- **The WASM image-decode fallback is untested in CI** — it only runs when native
-  decode fails, which Chromium never does for these formats.
-- **Animated GIFs lose their animation.** First frame only; every GIF warns.
+  unverifiable and opt-in, and site-mode `<picture>` refuses any page whose
+  scripts it cannot clear (ADR-021).
+- **Site-mode `<picture>` is conservative by design.** One position-based image
+  selector anywhere turns it off for the whole site, and one external script
+  turns it off for that page. Expect it to refuse on many real themes; the
+  warning list says exactly why each time.
+- **The largest site tested is 40 generated pages** (`scale.spec.ts`: 13–20s in
+  Chromium, 37–60s in WebKit, 91s in Firefox). Still no real theme with hundreds
+  of assets. Run all three engines at once on one machine and the slower two time
+  out; run them per engine, as CI does with one worker.
+- **Memory is the ceiling for very large sites.** Inputs and outputs are all
+  held in memory until the download. The zip no longer needs one archive-sized
+  buffer, but streaming each file out as it finishes is still to do
+  (`docs/SCALING.md`, section 2).
+- **HEIC is not converted in whole-site mode** (ADR-026); use files mode.
+- **Out-of-memory recovery is untested at real size.** A decode that fails is
+  retried once, scaled to the largest ladder width during decode, then skipped
+  (`ARCHITECTURE.md`). The scaled decode itself is tested; provoking a genuine
+  out-of-memory in CI is not practical. WebKit has no scaled path and skips.

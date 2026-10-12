@@ -38,6 +38,8 @@ const SITE = [
  */
 async function dropSite(page: import('@playwright/test').Page) {
   await page.goto('/');
+  // React renders after the load event; the input may not exist the moment goto returns.
+  await page.locator('input[type=file]').waitFor({ state: 'attached' });
 
   const files = SITE.map((name) => ({
     path: name,
@@ -174,7 +176,7 @@ test('the warning list names every file it left alone, and why', async ({ page }
     timeout: 90_000,
   });
 
-  const warnings = page.locator('details');
+  const warnings = page.locator('details').filter({ hasText: 'Left alone' });
   await warnings.locator('summary').click();
 
   await expect(warnings).toContainText('img/inline.png');

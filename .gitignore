@@ -31,3 +31,6 @@ Thumbs.db
 *.local
 *.log
 npm-debug.log*
+
+# throwaway design demos and notes
+scratchpad

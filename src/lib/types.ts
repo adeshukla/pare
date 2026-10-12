@@ -15,6 +15,8 @@ export type AssetKind =
   | 'js'
   | 'html'
   | 'svg'
+  /** PHP and other server templates: read for references, never rewritten. */
+  | 'template'
   | 'other';
 
 export type Reference = {
@@ -139,6 +141,8 @@ export type FontSlice = {
   codepoints: number;
   /** Ready for the `unicode-range` descriptor. Empty means "no restriction". */
   unicodeRange: string;
+  /** The same slice as WOFF 1.0, for older browsers, when asked for. */
+  woff?: { path: string; bytes: Uint8Array };
 };
 
 export type FontOutcome = {
@@ -172,6 +176,8 @@ export type TextOutcome = {
   /** After minification, before any transport compression. */
   bytesAfter: number;
   minified: Uint8Array;
+  /** A source map holding the original text, when enabled. Never served to visitors. */
+  map?: { path: string; bytes: Uint8Array };
   /** Sibling files: gzip and brotli, when enabled. */
   siblings: Array<{ path: string; bytes: Uint8Array; encoding: 'gzip' | 'brotli' }>;
   /** Smallest transport encoding available, which is what a server would send. */

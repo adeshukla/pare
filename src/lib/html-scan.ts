@@ -41,15 +41,28 @@ export type RawText = {
   attrs: Record<string, string>;
 };
 
+/** One `<img>` open tag, whole, for callers that wrap rather than splice a value. */
+export type ImgTag = {
+  /** Byte range of the open tag, `<` through `>`. */
+  start: number;
+  end: number;
+  /** Lowercased attribute names to values exactly as written. */
+  attrs: Record<string, string>;
+  /** Already the child of a `<picture>` the author wrote. */
+  inPicture: boolean;
+};
+
 const RAW_TEXT = new Set(['script', 'style', 'textarea', 'title']);
 const isSpace = (c: string) => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
 const isNameChar = (c: string) => !isSpace(c) && c !== '=' && c !== '>' && c !== '/' && c !== '<';
 
-type Scan = { attrs: AttrHit[]; raw: RawText[] };
+type Scan = { attrs: AttrHit[]; raw: RawText[]; imgs: ImgTag[] };
 
 function scan(html: string): Scan {
   const attrs: AttrHit[] = [];
   const raw: RawText[] = [];
+  const imgs: ImgTag[] = [];
+  let pictureDepth = 0;
   let i = 0;
 
   while (i < html.length) {
@@ -69,6 +82,7 @@ function scan(html: string): Scan {
     }
     if (html.startsWith('</', lt)) {
       const end = html.indexOf('>', lt);
+      if (/^<\/picture[\s>]/i.test(html.slice(lt, lt + 10)) && pictureDepth > 0) pictureDepth--;
       i = end === -1 ? html.length : end + 1;
       continue;
     }
@@ -141,6 +155,11 @@ function scan(html: string): Scan {
       attrs.push({ tag, attr: attr.toLowerCase(), value, start, end, quote, tagStart: lt });
     }
 
+    if (tag === 'picture') pictureDepth++;
+    if (tag === 'img' && html[p - 1] === '>') {
+      imgs.push({ start: lt, end: p, attrs: tagAttrs, inPicture: pictureDepth > 0 });
+    }
+
     // Raw-text elements swallow everything up to their closing tag, so the
     // scanner must skip the body rather than try to read tags inside it.
     if (RAW_TEXT.has(tag)) {
@@ -158,7 +177,7 @@ function scan(html: string): Scan {
     i = p;
   }
 
-  return { attrs, raw };
+  return { attrs, raw, imgs };
 }
 
 export function scanAttributes(html: string): AttrHit[] {

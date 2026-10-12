@@ -1,4 +1,5 @@
 import { unzipSync, strFromU8 } from 'fflate';
+const unzipBlob = async (blob: Blob) => unzipSync(new Uint8Array(await blob.arrayBuffer()));
 import { describe, expect, it } from 'vitest';
 import { buildZip, snippetsDocument } from '../../src/lib/emit';
 import { servedVariant, summarise, type Row } from '../../src/lib/optimize';
@@ -208,8 +209,8 @@ describe('summarise - across kinds', () => {
 });
 
 describe('buildZip', () => {
-  it('writes every image variant at its own path and keeps folder structure', () => {
-    const zip = unzipSync(
+  it('writes every image variant at its own path and keeps folder structure', async () => {
+    const zip = await unzipBlob(
       buildZip([
         row({
           asset: asset('img/hero.jpg', 1000),
@@ -231,8 +232,8 @@ describe('buildZip', () => {
     ]);
   });
 
-  it('writes one file per font slice', () => {
-    const zip = unzipSync(
+  it('writes one file per font slice', async () => {
+    const zip = await unzipBlob(
       buildZip([row({ asset: asset('fonts/plex.woff2', 15000, 'font'), font: font() })]),
     );
     expect(Object.keys(zip).sort()).toEqual([
@@ -241,8 +242,8 @@ describe('buildZip', () => {
     ]);
   });
 
-  it('keeps the original name for minified text and adds the compressed siblings', () => {
-    const zip = unzipSync(
+  it('keeps the original name for minified text and adds the compressed siblings', async () => {
+    const zip = await unzipBlob(
       buildZip([row({ asset: asset('site.css', 5000, 'css'), text: text() })]),
     );
     expect(Object.keys(zip).sort()).toEqual(['site.css', 'site.css.gz']);
@@ -251,8 +252,8 @@ describe('buildZip', () => {
     expect(zip['site.css']!.byteLength).toBe(3000);
   });
 
-  it('copies through anything the pipeline did not touch', () => {
-    const zip = unzipSync(
+  it('copies through anything the pipeline did not touch', async () => {
+    const zip = await unzipBlob(
       buildZip([
         row({ asset: asset('notes.txt', 20, 'other') }),
         row({ asset: asset('broken.jpg', 30), outcome: outcome({ variants: [], skipped: 'no' }) }),
@@ -262,14 +263,14 @@ describe('buildZip', () => {
     expect(zip['notes.txt']!.byteLength).toBe(20);
   });
 
-  it('omits snippets.html when nothing generated markup', () => {
-    const zip = unzipSync(buildZip([row({ asset: asset('a.txt', 10, 'other') })]));
+  it('omits snippets.html when nothing generated markup', async () => {
+    const zip = await unzipBlob(buildZip([row({ asset: asset('a.txt', 10, 'other') })]));
     expect(zip['snippets.html']).toBeUndefined();
   });
 });
 
 describe('snippetsDocument', () => {
-  it('lists the markup, then what was left alone and why', () => {
+  it('lists the markup, then what was left alone and why', async () => {
     const doc = snippetsDocument([
       row({ snippet: '<picture>A</picture>', outcome: outcome({ warnings: ['a note'] }) }),
       row({
@@ -284,7 +285,7 @@ describe('snippetsDocument', () => {
     expect(doc).toContain('a note');
   });
 
-  it('explains the compressed siblings only when there are some', () => {
+  it('explains the compressed siblings only when there are some', async () => {
     const withGz = snippetsDocument([
       row({ asset: asset('a.css', 10, 'css'), text: text(), snippet: '<picture>x</picture>' }),
     ]);
@@ -294,7 +295,7 @@ describe('snippetsDocument', () => {
     expect(without).not.toContain('.gz and .br');
   });
 
-  it('surfaces a font warning next to the file it came from', () => {
+  it('surfaces a font warning next to the file it came from', async () => {
     const doc = snippetsDocument([
       row({
         asset: asset('fonts/plex.woff2', 10, 'font'),
@@ -305,8 +306,8 @@ describe('snippetsDocument', () => {
     expect(doc).toContain('fonts/plex.woff2 - Kept 40 of 400 characters.');
   });
 
-  it('round-trips as UTF-8 through the zip', () => {
-    const zip = unzipSync(buildZip([row({ snippet: '<picture>—</picture>' })]));
+  it('round-trips as UTF-8 through the zip', async () => {
+    const zip = await unzipBlob(buildZip([row({ snippet: '<picture>—</picture>' })]));
     expect(strFromU8(zip['snippets.html']!)).toContain('<picture>—</picture>');
   });
 });

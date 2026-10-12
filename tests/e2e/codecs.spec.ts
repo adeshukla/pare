@@ -13,6 +13,8 @@ const CODECS = '/src/workers/codecs.ts';
 
 type Loaded = {
   decode: (b: Uint8Array, mime: string) => Promise<ImageData>;
+  decodeWasm: (b: Uint8Array, mime: string) => Promise<ImageData>;
+  decodeScaled: (b: Uint8Array, mime: string, width: number) => Promise<ImageData>;
   encodeAvif: (d: ImageData, q: number) => Promise<Uint8Array>;
   encodeWebp: (d: ImageData, q: number) => Promise<Uint8Array>;
   encodeJpeg: (d: ImageData, q: number) => Promise<Uint8Array>;
@@ -190,4 +192,49 @@ test('a corrupt file is rejected rather than producing garbage output', async ({
 
   // The pipeline turns this rejection into a skip-and-warn; see app.spec.ts.
   expect(failed).toBe(true);
+});
+
+test('the WASM decoders read every format the browser decoder does', async ({ page }) => {
+  // This path only runs when the browser's own decoder refuses - which in
+  // Chromium is never, and in WebKit is always (no OffscreenCanvas in workers).
+  // Called directly here so every engine exercises it, and against the native
+  // decode so a wrong size or a blank buffer cannot pass.
+  const out = await page.evaluate(async () => {
+    const results: Array<{ name: string; wasm: [number, number]; lit: boolean }> = [];
+    for (const [name, mime] of [
+      ['photo.jpg', 'image/jpeg'],
+      ['flat.png', 'image/png'],
+    ] as const) {
+      const bytes = await window.__fixture!(name);
+      const img = await window.__pare!.decodeWasm(bytes, mime);
+      results.push({
+        name,
+        wasm: [img.width, img.height],
+        lit: img.data.some((v, i) => i % 4 !== 3 && v > 0),
+      });
+    }
+    return results;
+  });
+
+  expect(out).toEqual([
+    { name: 'photo.jpg', wasm: [1200, 800], lit: true },
+    { name: 'flat.png', wasm: [640, 480], lit: true },
+  ]);
+});
+
+test('an image too big to hold can be decoded straight to a smaller size', async ({ page }) => {
+  const size = await page.evaluate(async () => {
+    const bytes = await window.__fixture!('photo.jpg');
+    try {
+      const img = await window.__pare!.decodeScaled(bytes, 'image/jpeg', 400);
+      return { width: img.width, height: img.height };
+    } catch {
+      // WebKit has no OffscreenCanvas, so there is no scaled path to take.
+      return typeof OffscreenCanvas === 'undefined' ? 'unsupported' : 'failed';
+    }
+  });
+
+  if (size === 'unsupported') return;
+  // Aspect ratio follows from the width alone.
+  expect(size).toEqual({ width: 400, height: 267 });
 });

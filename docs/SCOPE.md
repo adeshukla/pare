@@ -22,7 +22,7 @@ They are not looking for a build system. They want an optimized image and the
 ## In scope
 
 ### Phase 1 — Images
-- Decode JPEG, PNG, WebP, AVIF, GIF (first frame)
+- Decode JPEG, PNG, WebP, AVIF, GIF (first frame), HEIC and BMP (ADR-026)
 - Resize to a breakpoint ladder
 - Encode AVIF, WebP, MozJPEG, OxiPNG
 - Strip EXIF and other metadata
@@ -45,6 +45,7 @@ They are not looking for a build system. They want an optimized image and the
 - Crawl an entry HTML file's asset graph
 - Content-hash and rewrite resolvable references
 - Output a complete `dist/`
+- Read PHP and other server templates for the files they name; never rewrite them (ADR-027)
 
 ### Phase 5 — Verification
 - Render before/after in iframes, pixel-diff, flag regressions

@@ -64,6 +64,8 @@ export type FontSettings = {
   /** `font-display` in the generated @font-face. */
   display: 'swap' | 'optional' | 'fallback' | 'block' | 'auto';
   preload: boolean;
+  /** Also write WOFF 1.0 for browsers older than WOFF2 (Safari 11 and earlier). */
+  woff: boolean;
 };
 
 export const FONT_DEFAULTS: FontSettings = {
@@ -71,6 +73,7 @@ export const FONT_DEFAULTS: FontSettings = {
   extraText: '',
   display: 'swap',
   preload: true,
+  woff: false,
 };
 
 /* ------------------------------------------------------------------ *
@@ -89,12 +92,38 @@ export type TextSettings = {
   /** Minimum browser versions handed to Lightning CSS. */
   target: TargetPreset;
   /**
-   * A second JavaScript pass with Terser. Slower, usually a few percent smaller.
+   * How hard JavaScript is minified. ADR-028.
+   *   safe      whitespace and syntax only - no name is ever changed
+   *   balanced  also shortens local names; globals are never touched (default)
+   *   max       balanced plus a second pass with Terser
    *
-   * JavaScript only. CSSO was tried for the CSS half and rejected for silently
-   * deleting at-rules it is too old to parse - see ADR-020.
+   * CSSO was tried as a second CSS pass and rejected for silently deleting
+   * at-rules it is too old to parse - see ADR-020.
    */
-  deeper: boolean;
+  jsLevel: JsLevel;
+  /**
+   * Write a .map beside each minified CSS and JS file, holding the original
+   * text. Browser dev tools then show the code as written, and the original can
+   * always be recovered from the map alone.
+   */
+  sourceMaps: boolean;
+};
+
+export type JsLevel = 'safe' | 'balanced' | 'max';
+
+export const JS_LEVELS: Record<JsLevel, { label: string; note: string }> = {
+  safe: {
+    label: 'Safe',
+    note: 'Removes spaces, comments and redundant syntax. Never changes a single name, so code that looks up its own names keeps working.',
+  },
+  balanced: {
+    label: 'Balanced',
+    note: 'Also shortens names that exist only inside a function or a module. Names other scripts or your HTML can reach are never changed. Files that read their own names (eval, AngularJS injection) are automatically kept at Safe.',
+  },
+  max: {
+    label: 'Maximum',
+    note: 'Balanced, then a second, slower pass with Terser. Usually a few percent smaller. Same rule: global names are never changed.',
+  },
 };
 
 /**
@@ -105,16 +134,20 @@ export type TextSettings = {
  * Naming the floors directly is honest about what is being targeted and costs
  * no dependency. See ADR-013.
  */
-export type TargetPreset = 'modern' | 'wide';
+export type TargetPreset = 'modern' | 'wide' | 'legacy';
 
 export const TARGETS: Record<TargetPreset, { label: string; browsers: Record<string, number> }> = {
   modern: {
-    label: 'Modern browsers',
+    label: 'Latest',
     browsers: { chrome: 111, firefox: 113, safari: 16.4, edge: 111 },
   },
   wide: {
-    label: 'Older browsers too',
+    label: 'Since 2021',
     browsers: { chrome: 90, firefox: 88, safari: 14, edge: 90 },
+  },
+  legacy: {
+    label: 'Since 2017',
+    browsers: { chrome: 61, firefox: 60, safari: 11, edge: 79 },
   },
 };
 
@@ -125,6 +158,7 @@ export const TEXT_DEFAULTS: TextSettings = {
   svg: true,
   gzip: true,
   brotli: false,
-  target: 'modern',
-  deeper: false,
+  target: 'wide',
+  jsLevel: 'balanced',
+  sourceMaps: true,
 };

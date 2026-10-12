@@ -19,6 +19,8 @@ export default tseslint.config(
       // written the way a real site would be; linting them would invite edits
       // that change what the minifier tests are actually testing.
       'tests/fixtures/**',
+      // Gitignored throwaway demos and one-off scripts.
+      'scratchpad/**',
     ],
   },
 
@@ -107,5 +109,10 @@ export default tseslint.config(
   {
     files: ['scripts/**/*.mjs'],
     languageOptions: { globals: { ...globals.node } },
+  },
+
+  {
+    files: ['public/sw.js'],
+    languageOptions: { globals: { ...globals.serviceworker } },
   },
 );

@@ -1,4 +1,4 @@
-import { zipSync } from 'fflate';
+import { Zip, ZipDeflate, ZipPassThrough } from 'fflate';
 import type { Row } from './optimize';
 
 /**
@@ -61,7 +61,37 @@ export function snippetsDocument(rows: Row[]): string {
   return parts.join('\n') + '\n';
 }
 
-export function buildZip(rows: Row[]): Uint8Array {
+export function buildZip(rows: Row[]): Blob {
+  return zipToBlob(outputFiles(rows));
+}
+
+/** Formats that are already compressed; deflating them again only costs time. */
+const STORED = /\.(jpe?g|png|gif|webp|avif|heic|woff2?|gz|br|zip|mp4|webm)$/i;
+
+/**
+ * A zip built in chunks, straight into a Blob. Two things matter at scale
+ * (docs/SCALING.md): there is never one archive-sized buffer in memory - a
+ * single ArrayBuffer tops out around 2 GB, and a big uploads folder is past
+ * that - and images and fonts, already compressed, are stored rather than
+ * deflated a second time for nothing.
+ */
+export function zipToBlob(files: Record<string, Uint8Array>): Blob {
+  const chunks: Uint8Array[] = [];
+  const zip = new Zip((error, chunk) => {
+    if (error) throw error;
+    chunks.push(chunk);
+  });
+  for (const [path, bytes] of Object.entries(files)) {
+    const entry = STORED.test(path) ? new ZipPassThrough(path) : new ZipDeflate(path, { level: 6 });
+    zip.add(entry);
+    entry.push(bytes, true);
+  }
+  zip.end();
+  return new Blob(chunks as BlobPart[], { type: 'application/zip' });
+}
+
+/** Every output file by path: what goes in the zip, or into a chosen folder. */
+export function outputFiles(rows: Row[]): Record<string, Uint8Array> {
   const files: Record<string, Uint8Array> = {};
 
   for (const row of rows) {
@@ -73,7 +103,10 @@ export function buildZip(rows: Row[]): Uint8Array {
 
     const font = row.font;
     if (font && font.slices.length > 0) {
-      for (const s of font.slices) files[s.path] = s.bytes;
+      for (const s of font.slices) {
+        files[s.path] = s.bytes;
+        if (s.woff) files[s.woff.path] = s.woff.bytes;
+      }
       continue;
     }
 
@@ -81,6 +114,7 @@ export function buildZip(rows: Row[]): Uint8Array {
     if (text) {
       // The minified file keeps the original name so it drops straight in.
       files[text.inputPath] = text.minified;
+      if (text.map) files[text.map.path] = text.map.bytes;
       for (const s of text.siblings) files[s.path] = s.bytes;
       continue;
     }
@@ -93,11 +127,11 @@ export function buildZip(rows: Row[]): Uint8Array {
     files['snippets.html'] = enc.encode(snippetsDocument(rows));
   }
 
-  return zipSync(files, { level: 6 });
+  return files;
 }
 
-export function download(bytes: Uint8Array, filename: string) {
-  const blob = new Blob([bytes as BufferSource], { type: 'application/zip' });
+export function download(data: Uint8Array | Blob, filename: string) {
+  const blob = data instanceof Blob ? data : new Blob([data as BufferSource], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

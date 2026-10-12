@@ -73,6 +73,12 @@ export type ElementBox = {
   natural?: number;
   /** Whether the element paints a background image. */
   background?: boolean;
+  /**
+   * For <img>: every computed property, addresses blanked. Wrapping an image in
+   * a <picture> can stop a selector matching it without moving it a pixel -
+   * `object-fit`, `filter`, `opacity` - so position alone cannot clear it.
+   */
+  style?: string;
 };
 
 export type PageSnapshot = {
@@ -234,6 +240,15 @@ function mintUrls(
 /** Elements beyond this are not measured; a page that big has made the point. */
 const MAX_ELEMENTS = 4000;
 
+const LAYOUT_RESOLVED = new Set([
+  'width',
+  'height',
+  'inline-size',
+  'block-size',
+  'transform-origin',
+  'perspective-origin',
+]);
+
 function fingerprint(doc: Document, page: string, viewport: number): PageSnapshot {
   const boxes: ElementBox[] = [];
   const failed: string[] = [];
@@ -249,10 +264,27 @@ function fingerprint(doc: Document, page: string, viewport: number): PageSnapsho
       height: Math.round(rect.height),
     };
 
-    if (element instanceof HTMLImageElement) {
-      box.natural = element.naturalWidth;
-      if (element.currentSrc && element.naturalWidth === 0) {
-        failed.push(element.getAttribute('src') ?? element.currentSrc);
+    const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
+
+    // The tag name, not instanceof: elements in an iframe belong to that
+    // frame's realm, where this realm's HTMLImageElement does not match.
+    if (element.tagName === 'IMG') {
+      const img = element as HTMLImageElement;
+      box.natural = img.naturalWidth;
+      if (img.currentSrc && img.naturalWidth === 0) {
+        failed.push(img.getAttribute('src') ?? img.currentSrc);
+      }
+      if (computed) {
+        const props: string[] = [];
+        for (const name of computed) {
+          // Resolved from layout, so sub-pixel noise from a minifier rounding a
+          // percentage lands here. The geometry check already covers them, with
+          // a tolerance.
+          if (LAYOUT_RESOLVED.has(name)) continue;
+          // Addresses are blob URLs that differ on each side by construction.
+          props.push(name + ':' + computed.getPropertyValue(name).replace(/url\([^)]*\)/g, 'url()'));
+        }
+        box.style = props.join(';');
       }
     }
 
@@ -261,15 +293,26 @@ function fingerprint(doc: Document, page: string, viewport: number): PageSnapsho
     // gets erased - moves nothing at all, so it has to be looked for directly.
     // This check exists because an earlier build silently emptied every style
     // attribute and the layout diff reported the site as clean.
-    const painted = element.ownerDocument.defaultView
-      ?.getComputedStyle(element)
-      .getPropertyValue('background-image');
+    const painted = computed?.getPropertyValue('background-image');
     if (painted && painted !== 'none') box.background = true;
 
     boxes.push(box);
 
-    const counts = new Map<string, number>();
+    // A <picture> is see-through here: its <img> is compared as if it were a
+    // child of the picture's parent, and its <source>s have no box to compare.
+    // That is what lets ADR-021's wrapping be checked like-for-like; the img's
+    // own box and style are what would show a wrapper changing anything.
+    const children: Element[] = [];
     for (const child of element.children) {
+      if (child.tagName === 'PICTURE') {
+        for (const inner of child.children) if (inner.tagName !== 'SOURCE') children.push(inner);
+      } else {
+        children.push(child);
+      }
+    }
+
+    const counts = new Map<string, number>();
+    for (const child of children) {
       const tag = child.tagName.toLowerCase();
       const n = (counts.get(tag) ?? 0) + 1;
       counts.set(tag, n);
@@ -402,6 +445,13 @@ function compare(before: PageSnapshot, after: PageSnapshot): Finding[] {
         message: `An image at ${box.at} loaded before optimizing and does not now.`,
       });
     }
+    if (was.style !== undefined && box.style !== undefined && was.style !== box.style) {
+      findings.push({
+        ...at,
+        severity: 'moved',
+        message: `An image at ${box.at} is styled differently after optimizing — a CSS rule that matched it before no longer does, or the other way round.`,
+      });
+    }
     if (was.background && !box.background) {
       findings.push({
         ...at,
@@ -448,34 +498,49 @@ export async function verify(
   const beforeUrls = mintUrls(before, discoverRefs(before));
   const afterUrls = mintUrls(after, discoverRefs(after));
   const findings: Finding[] = [];
-  const total = pages.length * VIEWPORTS.length;
+  const jobs = pages.flatMap((page) => VIEWPORTS.map((viewport) => ({ page, viewport })));
   let done = 0;
 
-  try {
-    for (const page of pages) {
-      const a = beforeUrls.urls.get(page);
-      const b = afterUrls.urls.get(page);
-      if (!a || !b) continue;
-
-      for (const viewport of VIEWPORTS) {
-        onProgress(done / total, `${page} at ${viewport}px`);
-        try {
-          const [was, now] = await Promise.all([
-            render(a, viewport, page),
-            render(b, viewport, page),
-          ]);
-          findings.push(...compare(was, now));
-        } catch {
-          findings.push({
-            page,
-            viewport,
-            severity: 'broken',
-            message: 'This page could not be previewed, so it could not be checked.',
-          });
-        }
-        done++;
-      }
+  const check = async ({ page, viewport }: { page: string; viewport: number }) => {
+    const a = beforeUrls.urls.get(page);
+    const b = afterUrls.urls.get(page);
+    if (!a || !b) return;
+    try {
+      const [was, now] = await Promise.all([
+        render(a, viewport, page),
+        render(b, viewport, page),
+      ]);
+      findings.push(...compare(was, now));
+    } catch {
+      findings.push({
+        page,
+        viewport,
+        severity: 'broken',
+        message: 'This page could not be previewed, so it could not be checked.',
+      });
+    } finally {
+      done++;
+      onProgress(done / jobs.length, `${done} of ${jobs.length}`);
     }
+  };
+
+  // A few page-and-viewport pairs at once. Each is two hidden iframes; this is
+  // where a site with hundreds of pages spends its time, and rendering is mostly
+  // waiting on decode and layout rather than on this thread.
+  // ponytail: fixed width of 3, measure on a real theme before tuning.
+  const next = { i: 0 };
+  const lane = async () => {
+    while (next.i < jobs.length) await check(jobs[next.i++]!);
+  };
+
+  try {
+    onProgress(0, `0 of ${jobs.length}`);
+    await Promise.all([lane(), lane(), lane()]);
+    // Lanes finish out of order; report in a stable order.
+    findings.sort(
+      (x, y) =>
+        pages.indexOf(x.page) - pages.indexOf(y.page) || x.viewport - y.viewport,
+    );
   } finally {
     beforeUrls.revoke();
     afterUrls.revoke();

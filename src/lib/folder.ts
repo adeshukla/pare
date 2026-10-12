@@ -1,4 +1,5 @@
 import * as Comlink from 'comlink';
+import type { Remote } from 'comlink';
 import { buildGraph, type Graph } from './graph';
 import { contentHash, hashedPath } from './hash';
 import { isTextKind, type Settings } from './optimize';
@@ -6,6 +7,15 @@ import { run, runAll } from './pool';
 import { refsByFile, rewriteReferences } from './rewrite';
 import type { Asset, TextKind, Warning } from './types';
 import type { VirtualFile } from './verify';
+import {
+  imageSensitiveSelector,
+  scriptsBlockWrapping,
+  wrapImages,
+  type ModernCopies,
+} from './picture-wrap';
+import { scanHtml } from './html-scan';
+import { splitPath } from './naming';
+import type { PipelineApi } from '../workers/pipeline.worker';
 
 /**
  * Folder mode. Phase 4.
@@ -55,6 +65,14 @@ export type FolderSettings = {
    * renaming.
    */
   fonts: boolean;
+  /**
+   * Make AVIF and WebP copies of JPEG and PNG images, and wrap each plain `<img>`
+   * that shows one in a `<picture>` offering them.
+   *
+   * Off by default: it is the one step that changes markup rather than bytes and
+   * addresses. Fenced in picture-wrap.ts and checked by the verifier. ADR-021.
+   */
+  modern: boolean;
 };
 
 export const FOLDER_DEFAULTS: FolderSettings = {
@@ -63,6 +81,7 @@ export const FOLDER_DEFAULTS: FolderSettings = {
   text: true,
   bundle: false,
   fonts: false,
+  modern: false,
 };
 
 export type FolderFile = {
@@ -73,6 +92,22 @@ export type FolderFile = {
   bytesBefore: number;
   kind: Asset['kind'];
   skipped?: string;
+  /** For a new AVIF/WebP copy: the image it was made from. Not in the "before". */
+  siblingOf?: string;
+  /** Set on new files, which have no input asset to take a type from. */
+  mime?: string;
+  /**
+   * What a visitor downloads in this file's place, when that is not the file
+   * itself: the smallest modern copy, once every reference to the image offers
+   * one. ADR-009.
+   */
+  bytesServed?: number;
+  /**
+   * A BMP re-encoded as PNG (ADR-026). Converting changes the extension, so it
+   * needs a new name - granted only where every reference can be rewritten,
+   * and undone otherwise.
+   */
+  converted?: { original: Uint8Array; ext: string };
 };
 
 export type FolderResult = {
@@ -87,6 +122,8 @@ export type FolderResult = {
   rewritten: number;
   /** Pages, for the verifier to render. */
   pages: string[];
+  /** How many `<img>` elements were wrapped in a `<picture>`. */
+  pictures: number;
 };
 
 const decoder = new TextDecoder('utf-8', { fatal: false });
@@ -128,18 +165,32 @@ export async function optimizeFolder(
     : { replaced: new Map<string, Uint8Array>(), absorbed: new Set<string>(), bundled: [] };
 
   const surviving = assets.filter((a) => !bundles.absorbed.has(a.path));
+  // A file folded into a bundle is finished; say so, or its row waits forever.
+  for (const path of bundles.absorbed) onUpdate(path, 1, '');
+
+  const copies = new Map<string, { avif?: Uint8Array; webp?: Uint8Array }>();
 
   // Characters the whole site contains, for font subsetting. Gathered once, up
   // front, because every font job needs the same answer.
   let used: number[] = [];
   if (folder.fonts && surviving.some((a) => a.kind === 'font')) {
-    const texts = surviving.filter((a) => isTextKind(a.kind));
+    // Templates hold page text too; a WordPress theme's words live there.
+    const texts = surviving.filter((a) => isTextKind(a.kind) || a.kind === 'template');
     const found = await runAll(texts, (asset, api) => api.scanCodepoints(asset.bytes));
     used = [...new Set(found.flat())];
   }
 
   // 1. Optimize each file's bytes, in place and in its own format.
   const optimized = await runAll(surviving, async (asset, api): Promise<FolderFile> => {
+    const file = await optimizeOne(asset, api);
+    onUpdate(asset.path, 1, '');
+    return file;
+  });
+
+  async function optimizeOne(
+    asset: Asset,
+    api: Remote<PipelineApi>,
+  ): Promise<FolderFile> {
     const base: FolderFile = {
       path: asset.path,
       outputPath: asset.path,
@@ -154,14 +205,34 @@ export async function optimizeFolder(
     const bundled = bundles.replaced.get(asset.path);
     if (bundled) return { ...base, bytes: bundled };
 
+    if (asset.kind === 'image' && folder.images && asset.mime === 'image/heic') {
+      warnings.push({
+        path: asset.path,
+        message:
+          'Left as HEIC. Only Safari can show it, and converting it would change how the page looks everywhere else - something the before-and-after check cannot compare fairly. To get JPEG, WebP and AVIF versions, use "Just give me optimized files and snippets".',
+      });
+      return base;
+    }
+
+    if (asset.kind === 'image' && folder.images && asset.mime === 'image/bmp') {
+      const result = await api.bmpToPng(asset.bytes);
+      if (!result.bytes) return { ...base, skipped: result.skipped };
+      return { ...base, bytes: result.bytes, mime: 'image/png', converted: { original: asset.bytes, ext: 'png' } };
+    }
+
     if (asset.kind === 'image' && folder.images) {
       const result = await api.reencodeImage(
         asset.mime,
         asset.bytes,
         settings.image.quality.fallback,
         settings.image.stripMetadata,
+        folder.modern
+          ? { avif: settings.image.quality.avif, webp: settings.image.quality.webp }
+          : undefined,
+        report,
       );
       for (const w of result.warnings) warnings.push({ path: asset.path, message: w });
+      if (result.avif || result.webp) copies.set(asset.path, { avif: result.avif, webp: result.webp });
       return { ...base, bytes: result.bytes, skipped: result.skipped };
     }
 
@@ -180,7 +251,7 @@ export async function optimizeFolder(
       const result = await api.optimizeFont(
         asset.path,
         asset.bytes,
-        { mode: 'used', extraText: '', display: 'swap', preload: false },
+        { mode: 'used', extraText: '', display: 'swap', preload: false, woff: false },
         used,
         report,
       );
@@ -200,7 +271,7 @@ export async function optimizeFolder(
         asset.bytes,
         // Compressed siblings are for a server to pick up; folder mode's job is
         // the tree itself, and .gz copies of every file would double the zip.
-        { ...settings.text, gzip: false, brotli: false },
+        { ...settings.text, gzip: false, brotli: false, sourceMaps: false },
         report,
       );
       for (const w of result.warnings) warnings.push({ path: asset.path, message: w });
@@ -208,7 +279,7 @@ export async function optimizeFolder(
     }
 
     return base;
-  });
+  }
 
   // 2. Build the graph from the ORIGINAL text, then re-discover references in
   //    whatever the optimizers produced, since minifying moves every offset.
@@ -217,32 +288,84 @@ export async function optimizeFolder(
   for (const path of audit.removed) originalGraph.renameable.delete(path);
   warnings.push(...originalGraph.warnings, ...audit.warnings);
 
-  const rewrittenAssets: Asset[] = optimized.map((file) => {
-    const asset = surviving.find((a) => a.path === file.path)!;
-    return { ...asset, bytes: file.bytes };
+  // 2b. Offer AVIF and WebP through <picture>, where that is safe. ADR-021.
+  const modern = folder.modern
+    ? wrapPictures(optimized, surviving, copies, originalGraph, warnings)
+    : { siblings: [], pictures: 0 };
+  const siblings = modern.siblings;
+  const all = [...optimized, ...siblings];
+
+  const rewrittenAssets: Asset[] = all.map((file) => {
+    const asset = surviving.find((a) => a.path === file.path);
+    if (asset) return { ...asset, bytes: file.bytes };
+    return { path: file.path, bytes: file.bytes, kind: file.kind, mime: file.mime!, refs: [], resolvable: false };
   });
   const graph = buildGraph(rewrittenAssets);
   // Permission comes from the original graph: minification can only lose
   // references (a minifier may drop a comment holding one), never gain them, so
-  // intersecting is the safe direction.
+  // intersecting is the safe direction. A new AVIF/WebP copy did not exist then;
+  // it inherits the verdict on the image it was made from, since the only
+  // references to it are the ones Pare just wrote beside that image's own.
   for (const path of [...graph.renameable]) {
-    if (!originalGraph.renameable.has(path)) graph.renameable.delete(path);
+    const sibling = siblings.find((s) => s.path === path);
+    const origin = sibling?.siblingOf ?? path;
+    if (!originalGraph.renameable.has(origin)) graph.renameable.delete(path);
   }
 
   // 3. Decide new names.
   const renamed = new Map<string, string>();
-  if (folder.hash) {
-    for (const file of optimized) {
-      if (!graph.renameable.has(file.path)) continue;
-      renamed.set(file.path, hashedPath(file.path, await contentHash(file.bytes)));
+  // ADR-027: a folder with server templates (a WordPress theme, say) is never
+  // renamed. A child theme, a plugin or the database can name these files from
+  // outside the folder, and WordPress adds ?ver= for caching anyway.
+  const templated = surviving.some((a) => a.kind === 'template');
+  if (templated && folder.hash) {
+    warnings.push({
+      path: surviving.find((a) => a.kind === 'template')!.path,
+      message:
+        'Nothing was renamed: this folder has server templates (PHP or similar), and files outside it - a child theme, a plugin, the database - may refer to these files by name. Every file kept its name.',
+    });
+  }
+  const taken = new Set(all.map((f) => f.path));
+  for (const file of all) {
+    if (file.converted) {
+      // A converted file must be renamed to its new extension, or it is
+      // served as one format under another's name. Where that is not allowed,
+      // the conversion is undone.
+      const { dir, stem } = splitPath(file.path);
+      const target = (dir ? dir + '/' : '') + stem + '.' + file.converted.ext;
+      const reason = templated
+        ? 'this folder has server templates, which may name it'
+        : !graph.renameable.has(file.path)
+          ? 'something refers to it in a way Pare cannot rewrite'
+          : taken.has(target)
+            ? `a file named ${target} already exists`
+            : undefined;
+      if (reason) {
+        warnings.push({
+          path: file.path,
+          message: `Kept as BMP: converting it to PNG means a new name, and ${reason}.`,
+        });
+        file.bytes = file.converted.original;
+        file.mime = undefined;
+        file.converted = undefined;
+        continue;
+      }
+      taken.add(target);
+      renamed.set(
+        file.path,
+        folder.hash ? hashedPath(target, await contentHash(file.bytes)) : target,
+      );
+      continue;
     }
+    if (!folder.hash || templated || !graph.renameable.has(file.path)) continue;
+    renamed.set(file.path, hashedPath(file.path, await contentHash(file.bytes)));
   }
 
   // 4. Rewrite addresses in pages and stylesheets.
   const perFile = refsByFile(graph.refs);
   let rewritten = 0;
 
-  const files = optimized.map((file): FolderFile => {
+  const files = all.map((file): FolderFile => {
     const outputPath = renamed.get(file.path) ?? file.path;
     const canHoldRefs = file.kind === 'html' || file.kind === 'css';
     if (!canHoldRefs || renamed.size === 0) return { ...file, outputPath };
@@ -268,7 +391,132 @@ export async function optimizeFolder(
     warnings,
     rewritten,
     pages: graph.entries,
+    pictures: modern.pictures,
   };
+}
+
+/**
+ * Offer AVIF and WebP copies through `<picture>`, wherever picture-wrap.ts says
+ * that cannot change what a page matches. ADR-021.
+ *
+ * Mutates the bytes of the pages it wraps. Returns the copies that something now
+ * offers; a copy no page wraps is useless and is not emitted.
+ */
+function wrapPictures(
+  files: FolderFile[],
+  /** As dropped in: selectors are quoted to the user as they wrote them. */
+  originals: Asset[],
+  copies: Map<string, { avif?: Uint8Array; webp?: Uint8Array }>,
+  original: Graph,
+  warnings: Warning[],
+): { siblings: FolderFile[]; pictures: number } {
+
+  const none = { siblings: [], pictures: 0 };
+  if (copies.size === 0) return none;
+  const text = (f: FolderFile) => decoder.decode(f.bytes);
+
+  // 1. One position-sensitive selector anywhere, and nothing is wrapped at all.
+  for (const file of originals) {
+    const source = decoder.decode(file.bytes);
+    const sheets =
+      file.kind === 'css'
+        ? [source]
+        : file.kind === 'html'
+          ? scanHtml(source).raw.filter((r) => r.tag === 'style').map((r) => r.text)
+          : [];
+    for (const css of sheets) {
+      const selector = imageSensitiveSelector(css);
+      if (!selector) continue;
+      warnings.push({
+        path: file.path,
+        message: `No image was given AVIF or WebP copies — the selector "${selector}" picks images by their position or by <picture>, and wrapping an image would change what it matches.`,
+      });
+      return none;
+    }
+  }
+
+  // 2. Name each copy beside its original, never over a file that exists.
+  const taken = new Set(files.map((f) => f.path));
+  const named = new Map<string, ModernCopies>();
+  const madeBytes = new Map<string, Uint8Array>();
+  for (const [path, made] of copies) {
+    const { dir, stem } = splitPath(path);
+    const entry: ModernCopies = {};
+    for (const format of ['avif', 'webp'] as const) {
+      const bytes = made[format];
+      if (!bytes) continue;
+      const candidate = (dir ? dir + '/' : '') + stem + '.' + format;
+      if (taken.has(candidate)) continue;
+      taken.add(candidate);
+      entry[format] = candidate;
+      madeBytes.set(candidate, bytes);
+    }
+    if (entry.avif || entry.webp) named.set(path, entry);
+  }
+
+  // 3. Wrap, page by page.
+  const paths = new Set(files.map((f) => f.path));
+  const exists = (p: string) => paths.has(p);
+  const scripts = new Map(files.filter((f) => f.kind === 'js').map((f) => [f.path, text(f)]));
+  const wrapped = new Map<string, number>();
+
+  for (const page of files) {
+    if (page.kind !== 'html') continue;
+    const html = text(page);
+    const blocked = scriptsBlockWrapping(html, page.path, scripts, exists);
+    const result = wrapImages(html, page.path, named, exists, blocked);
+
+    if (result.wrapped.length > 0) page.bytes = encoder.encode(result.text);
+    for (const target of result.wrapped) wrapped.set(target, (wrapped.get(target) ?? 0) + 1);
+
+    const reasons = new Map<string, number>();
+    for (const reason of result.skipped) reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+    for (const [reason, count] of reasons) {
+      warnings.push({
+        path: page.path,
+        message: `Kept ${count} image${count === 1 ? '' : 's'} as a plain <img>, without AVIF or WebP — ${reason}.`,
+      });
+    }
+  }
+
+  // 4. Emit only copies a page now offers, and credit the saving only where
+  //    every reference to the image offers one (ADR-009).
+  const out: FolderFile[] = [];
+  let pictures = 0;
+  for (const [source, entry] of named) {
+    const count = wrapped.get(source) ?? 0;
+    if (count === 0) continue;
+    pictures += count;
+
+    const sizes: number[] = [];
+    for (const [format, path] of Object.entries(entry) as Array<['avif' | 'webp', string]>) {
+      const bytes = madeBytes.get(path)!;
+      sizes.push(bytes.byteLength);
+      out.push({
+        path,
+        outputPath: path,
+        bytes,
+        bytesBefore: 0,
+        kind: 'image',
+        siblingOf: source,
+        mime: 'image/' + format,
+      });
+    }
+
+    const file = files.find((f) => f.path === source)!;
+    const references = original.byTarget.get(source)?.length ?? 0;
+    if (count === references) {
+      file.bytesServed = Math.min(file.bytes.byteLength, ...sizes);
+    } else {
+      warnings.push({
+        path: source,
+        message:
+          'Some places that use this image still load the original — a stylesheet or a link, for instance, has no way to offer AVIF or WebP — so the saving shown counts the original.',
+      });
+    }
+  }
+
+  return { siblings: out, pictures };
 }
 
 
@@ -391,7 +639,7 @@ export function verificationInputs(
     return {
       path: file.outputPath,
       bytes: file.bytes,
-      mime: asset ? mimeOf(asset) : 'application/octet-stream',
+      mime: file.mime ?? (asset ? mimeOf(asset) : 'application/octet-stream'),
       kind: file.kind,
     };
   });

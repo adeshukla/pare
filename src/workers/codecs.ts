@@ -91,12 +91,28 @@ export async function decode(bytes: Uint8Array, mime: string): Promise<ImageData
   }
 }
 
-async function decodeNative(bytes: Uint8Array, mime: string): Promise<ImageData> {
+/**
+ * Decode straight to a smaller size, for an image too big to hold at full size.
+ *
+ * ARCHITECTURE.md: out of memory on a large image means downscale first, retry
+ * once, then skip. The browser can scale during decode, so the full-size pixels
+ * never have to exist in this worker at all. Height follows the aspect ratio.
+ */
+export function decodeScaled(bytes: Uint8Array, mime: string, width: number): Promise<ImageData> {
+  return decodeNative(bytes, mime, width);
+}
+
+async function decodeNative(bytes: Uint8Array, mime: string, width?: number): Promise<ImageData> {
   if (typeof createImageBitmap === 'undefined' || typeof OffscreenCanvas === 'undefined') {
     throw new Error('no native decoder in this context');
   }
   const blob = new Blob([bytes as BufferSource], { type: mime });
-  const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+  const bitmap = await createImageBitmap(
+    blob,
+    width
+      ? { imageOrientation: 'from-image', resizeWidth: width, resizeQuality: 'high' }
+      : { imageOrientation: 'from-image' },
+  );
   try {
     const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -108,7 +124,8 @@ async function decodeNative(bytes: Uint8Array, mime: string): Promise<ImageData>
   }
 }
 
-async function decodeWasm(bytes: Uint8Array, mime: string): Promise<ImageData> {
+/** Exported so the fallback can be tested directly; Chromium never needs it. */
+export async function decodeWasm(bytes: Uint8Array, mime: string): Promise<ImageData> {
   const buf = toArrayBuffer(bytes);
   switch (mime) {
     case 'image/jpeg': {
@@ -126,6 +143,16 @@ async function decodeWasm(bytes: Uint8Array, mime: string): Promise<ImageData> {
     case 'image/avif': {
       const { default: d } = await import('@jsquash/avif/decode');
       return orThrow(await d(buf), mime);
+    }
+    case 'image/bmp': {
+      // Plain TypeScript, no WASM: BMP is simple enough to read directly.
+      const { decodeBmp } = await import('../lib/bmp');
+      const { width, height, data } = decodeBmp(bytes);
+      return new ImageData(data as Uint8ClampedArray<ArrayBuffer>, width, height);
+    }
+    case 'image/heic': {
+      const { decodeHeic } = await import('./heic');
+      return decodeHeic(bytes);
     }
     default:
       throw new Error(`no decoder for ${mime}`);

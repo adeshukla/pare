@@ -612,3 +612,274 @@ worth a silent deletion.
 
 The evidence is reproducible: minify `tests/fixtures/text/site.css` at the modern
 target and pass the result to CSSO. The `@media` block does not come back.
+
+---
+
+## ADR-021 — Whole-site mode may offer AVIF and WebP through `<picture>`, opt-in
+
+**Status:** accepted. Narrows the "bytes change, markup does not" rule that
+`folder.ts` and `STATUS.md` stated for Phase 4; that rule was never an ADR.
+
+**Context.** Files mode turns a photograph into AVIF and WebP and hands over a
+`<picture>` snippet: a 70–90% saving. Whole-site mode re-encoded each image in its
+own format: 20–40%. The difference was the largest gap in the product, and it was
+there on purpose — offering a modern format means wrapping the `<img>`, and a new
+parent can change what CSS matches.
+
+**Decision.** Ship it, off by default, behind three fences:
+
+1. **A static selector check** (`imageSensitiveSelector`). Any selector that picks
+   an image by its parent or siblings — `> img`, `img + p`, `img ~ x`,
+   `img:first-child` and the other structural pseudo-classes, `:has(… img)` — or
+   that styles `picture` or `source` at all, and **nothing in the site is
+   wrapped**. The user is told which selector, as they wrote it.
+2. **A script check** (`scriptsBlockWrapping`). A `<source>` silently overrules an
+   `<img src>` a script just set. Any page whose inline scripts, inline handlers or
+   local scripts assign `.src` / `.srcset` is not wrapped, and neither is a page
+   that loads a script from outside the folder, which cannot be read. Law 3's
+   reasoning, applied to a different question.
+3. **The verifier**, extended. `<picture>` is see-through when matching elements,
+   so a wrapped `<img>` is compared with the one it replaced, and every `<img>`'s
+   full computed style is compared as well as its box. That catches what the static
+   check cannot see — `.row > * { opacity: .5 }` names no image, but after wrapping
+   it lands on the `<picture>` and the image loses it without moving a pixel. The
+   test for exactly that case is in `tests/e2e/picture.spec.ts`.
+
+Images that already have a `srcset`, already sit in a `<picture>`, or carry a
+lazy-loader's `data-src` are left as written. A copy is named beside its original
+(`hero.jpg` → `hero.avif`), never over an existing file, is emitted only if a page
+now offers it, and is fingerprinted only if its original was.
+
+**Reporting (ADR-009).** The headline counts the smallest version a browser picks
+— but only for an image *every* reference to which now offers one. An image also
+used as a CSS background is counted at its original size, and says why. The zip
+size, which includes every version, is shown beside it.
+
+**Alternatives considered.**
+
+- *`image-set()` in CSS instead.* Covers backgrounds, not `<img>`, which is where
+  most image bytes are.
+- *Content negotiation (`Accept: image/avif`) on the server.* Needs a server. Law 1.
+- *Wrap everything and trust the verifier alone.* The verifier runs without
+  scripts (ADR-017), so it cannot see fence 2's failure. Each fence covers a
+  different blind spot.
+
+**Consequence.** One option in Phase 4 now changes markup. It is labelled as the
+one that does, it is off by default, and when the verifier objects the first
+remedy offered is turning it off.
+
+---
+
+## ADR-022 — Animated GIFs are copied unchanged
+
+**Status:** accepted
+
+**Context.** Pare decodes a GIF's first frame only, because none of its encoders
+write animated AVIF or WebP. Files mode used to encode that frame anyway and warn
+that the result no longer animates.
+
+**Decision.** Detect animation by walking the GIF's block structure
+(`isAnimatedGif`), and copy an animated GIF through unchanged with a
+plain-language reason. A single-frame GIF is converted like any other image.
+
+**Reasoning.** A still picture of frame one is not a smaller version of an
+animation, it is a different file. Reporting it as a saving — even with a warning
+attached — breaks Law 5, and putting it in a `<picture>` snippet invites the user
+to ship it. Leaving the file alone costs bytes, never correctness.
+
+**Revisit** if a browser-side animated WebP or AVIF encoder becomes available.
+
+---
+
+## ADR-023 — Offline after first use, through a service worker
+
+**Status:** accepted
+
+**Context.** Law 1's own test is "works with the network cable unplugged after
+first load". Without a service worker that was only true until the tab closed.
+
+**Decision.** `public/sw.js`, registered in production builds only. The page is
+network-first, so a deploy is picked up whenever there is a connection; hashed
+assets and WASM are cache-first, filled as each is first used. Each build
+registers the worker with its own `?v=` and deletes the previous build's cache.
+
+**Reasoning.** Precaching every codec would make a first visit download ~40 MB
+of WASM a visitor may never use (esbuild and Lightning CSS alone are 30 MB).
+Caching on use keeps the first visit as light as it is today, and the footer
+says exactly what is true: what you have used once keeps working offline. Two
+details the offline test caught: the page's own script and stylesheet load before
+the worker exists, so install reads them out of the HTML and caches them; and a
+host's `Vary: Origin` makes exact cache matches miss, so lookups ignore `Vary`.
+
+**Consequence.** No telemetry, no network calls of its own — the worker only
+ever fetches Pare's own files. `tests/e2e/offline.spec.ts` runs against the
+built site and reloads with the network off.
+
+---
+
+## ADR-024 — Save to a folder, but only an empty one
+
+**Status:** accepted
+
+**Context.** On Chromium the File System Access API can write a whole tree, which
+saves the user an unzip. The zip download stays, and stays the only path in
+Firefox and Safari.
+
+**Decision.** "Save to a folder…" asks for a folder and **refuses one that already
+contains anything**.
+
+**Reasoning.** Law 4: originals are never modified in place. Pare cannot tell a
+folder the user just created from the one their live site is in, and asking "are
+you sure you want to overwrite 40 files?" is the kind of prompt people click
+through. "Pare never overwrites anything" is a rule a user can hold in their
+head; an empty folder satisfies it trivially.
+
+**Consequence.** One extra step for someone who wanted to write over a copy — they
+make a new folder. `tests/unit/save-folder.test.ts` covers the refusal with a fake
+directory handle; the picker itself cannot be driven from a test.
+
+---
+
+## ADR-025 — Visual direction: a precision tool with a motion language
+
+**Status:** accepted. Replaces the "measuring instrument" direction (thin rules,
+no radius, colour only for savings), which read as unfinished next to current
+tools and gave a first-time visitor nothing to start from.
+
+**Context.** Three directions were built as working slices of the real screens
+(`scratchpad/pare-directions.html`, not shipped): the incumbent, *Precision*
+(neutral zinc, one indigo accent, 8–12px radius) and *Calm* (roomy, consumer).
+The owner picked Precision and asked for it to be more visual, more fun, with
+motion and interaction.
+
+**Decision.**
+
+- **Tokens** (`src/index.css`): zinc neutrals, an indigo→violet accent for
+  anything you can act on, emerald only ever for a measured saving, amber for
+  anything skipped. Light and dark, by system setting or a manual choice applied
+  before first paint.
+- **Visuals that carry information**: real image thumbnails and "Aa" set in the
+  dropped font itself in the file list; colour-coded type badges; a stacked bar
+  of the saving by file type; per-format size bars beside each image.
+- **A motion language with five named movements**, all CSS: *arrive* (rows and
+  cards rise in, staggered), *pare* (the "after" number counts down from the
+  "before", and a bar shrinks to what is left), *sweep* (pages being checked at
+  three widths), *settle* (switches and segmented controls move on a spring),
+  and *mark* (a drawn check, and one burst of dots for a saving of 20% or more).
+
+**Law 5, kept.** Animation only moves *towards* a figure Pare computed; the final
+text is in the DOM from the first frame, for screen readers and tests. The
+illustrations on the landing page contain no numbers, so they cannot be read as
+a claim.
+
+**Accessibility.** `prefers-reduced-motion` stops every animation and the
+counters jump straight to their value. Switches stay `role=checkbox` with
+explicit accessible names; segmented controls are radio groups whose inputs cover
+their labels. Focus rings use the accent.
+
+**Cost.** Initial JS went from 86.0 to 94.2 KB gzipped of the 150 KB budget. No
+animation or icon library — a dozen inline icons and CSS keyframes.
+
+---
+
+## ADR-026 — HEIC and BMP are accepted as inputs
+
+**Status:** accepted
+
+**Context.** People drop iPhone photos (HEIC) and screenshots saved as BMP, and
+got nothing back: neither was recognised. Only Safari decodes HEIC, and WebKit
+cannot decode anything natively inside a worker.
+
+**Decision.**
+
+- **Detection by content.** HEIC and AVIF share a container and often the
+  generic `mif1` brand, so the whole `ftyp` brand list is read, not just the
+  first brand. BMP needs `BM` *and* a real DIB header size.
+- **HEIC** decodes natively where the browser can, otherwise through
+  `libheif-js` 1.23 (the WASM build with its binary inlined, ~1.9 MB), loaded
+  only when a HEIC file is dropped, in a worker. Orientation is applied by
+  libheif. The universal fallback is JPEG; the original HEIC is never offered as
+  a fallback, because most browsers cannot show it.
+- **BMP** decodes natively, otherwise through `src/lib/bmp.ts` (1/4/8/16/24/32
+  bit, bit-field masks, either row order; RLE refused rather than guessed). The
+  fallback is PNG, which keeps it exact.
+- **Whole-site mode** converts BMP to PNG — lossless, so the page looks
+  identical and the verifier compares like with like — and renames it, but only
+  where every reference can be rewritten (Law 3); otherwise the conversion is
+  undone and the BMP kept. HEIC is left alone in whole-site mode: converting it
+  makes the page look different in every non-Safari browser, which the
+  before-and-after check cannot fairly compare. Files mode handles it.
+
+**Licence.** libheif and libde265 are LGPL-3.0. Pare (MIT) loads the published,
+unmodified package as its own separately fetched file, never merged into Pare's
+own code, so it can be replaced; its licence ships with it in `node_modules` and
+is named in `THIRD_PARTY.md`. If that arrangement is ever in doubt, HEIC can be
+switched off by removing one case from `decodeWasm` — nothing else depends on it.
+
+---
+
+## ADR-027 — Server templates are read, never written; a templated site is never renamed
+
+**Status:** accepted
+
+**Context.** The audience includes WordPress and PHP theme developers. Their pages
+are built on a server by templates Pare cannot run, and files are referred to
+from places Pare cannot see: a child theme, a plugin, the database.
+
+**Decision.**
+
+- PHP and other server templates (Twig, Blade, Liquid, ERB, Nunjucks,
+  Handlebars, Smarty, Razor, JSP and others) are a kind of their own. They are
+  copied byte for byte — never minified, never rewritten.
+- Anything a template mentions by file name is pinned, the same blunt rule as
+  scripts: it keeps its name.
+- **A folder containing any template is never renamed at all**, whatever the
+  fingerprint switch says, and the switch is shown disabled with the reason.
+  WordPress adds `?ver=` for caching itself, so nothing is lost.
+- A folder of templates with no `.html` is still a site: whole-site mode is
+  offered, every file is optimised in place under its own name, and the
+  verification panel says plainly that template pages cannot be rendered in a
+  browser tab — which is why only changes that need no rendering were made.
+- A WordPress theme header (`Theme Name:` at the top of `style.css`), a plugin
+  header, and any `/*!` licence comment survive CSS minification. Without the
+  header WordPress stops listing the theme.
+- Font subsetting reads template text as well as HTML, and still warns that
+  database content is invisible.
+
+---
+
+## ADR-028 — How hard JavaScript is minified, for which browsers, and getting the original back
+
+**Status:** accepted
+
+**Context.** Minifiers rename variables, and renaming is the classic way a
+minified site breaks. Separately, the JavaScript target was hard-coded and
+ignored the "browsers to support" choice entirely.
+
+**Decision.**
+
+- **Three levels.** *Safe*: whitespace, comments and syntax only — no name
+  changes anywhere. *Balanced* (default): also shortens names that exist only
+  inside a function or a module. *Maximum*: Balanced plus a second Terser pass.
+  At every level, a top-level name in a classic script is never renamed —
+  another script, an inline handler or `setTimeout("fn()")` can reach it
+  (ADR-003). Verified against esbuild directly: it renames locals only.
+- **Name-sensitive code is held at Safe automatically**: `eval`, `new Function`,
+  `with`, `arguments.callee`, AngularJS-style injection (`angular.module`,
+  `$inject`) and functions reading their own source. The row says which and why.
+- **Source maps**, on by default in files mode: a `.map` beside each CSS and JS
+  file with the original text inside it. Dev tools show the code as written, and
+  the original can always be recovered from the map alone. Visitors never
+  download maps. Off in whole-site mode, where renaming would make the map's
+  pointer circular.
+- **Browser ranges** drive CSS *and* JavaScript output: Latest (2023+), Since
+  2021 (default) and Since 2017. Newer syntax in the input is rewritten down to
+  the range; output never uses syntax the range cannot run. A file that cannot be
+  rewritten that far is copied unchanged with a plain explanation. Terser's
+  `ecma` and its Safari 10 workaround follow the range. Choosing Since 2017 also
+  turns on WOFF fonts, since Safari 11 predates WOFF2.
+
+**Consequence.** The default moved from "Latest" to "Since 2021". CSS for that
+range is sometimes a little larger (Lightning CSS adds fallbacks such as a full
+`system-ui` font stack); when minifying would make a file bigger, Pare keeps the
+original, as it always has.

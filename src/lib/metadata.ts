@@ -150,3 +150,49 @@ export function stripMetadata(input: Uint8Array, mime: string): StripResult {
   if (mime === 'image/png') return stripPng(input);
   return unchanged(input, `no metadata stripper for ${mime}`);
 }
+
+/**
+ * True when a GIF holds more than one frame.
+ *
+ * Pare has no animated AVIF or WebP encoder, so an animated GIF can only be
+ * turned into a still picture of its first frame - which is a different file,
+ * not a smaller one. Callers copy these through untouched instead. Walks the
+ * block structure rather than searching for a marker byte, since 0x2C also turns
+ * up inside compressed image data.
+ */
+export function isAnimatedGif(b: Uint8Array): boolean {
+  if (b.length < 13 || b[0] !== 0x47 || b[1] !== 0x49 || b[2] !== 0x46) return false;
+
+  // Logical screen descriptor; bit 7 of its packed byte flags a global palette.
+  let i = 13;
+  const packed = b[10]!;
+  if (packed & 0x80) i += 3 * (1 << ((packed & 0x07) + 1));
+
+  const skipSubBlocks = () => {
+    while (i < b.length) {
+      const size = b[i++]!;
+      if (size === 0) return;
+      i += size;
+    }
+  };
+
+  let frames = 0;
+  while (i < b.length) {
+    const block = b[i++];
+    if (block === 0x3b) break; // trailer
+    if (block === 0x21) {
+      i++; // extension label
+      skipSubBlocks();
+    } else if (block === 0x2c) {
+      if (++frames > 1) return true;
+      const local = b[i + 8]!;
+      i += 9;
+      if (local & 0x80) i += 3 * (1 << ((local & 0x07) + 1));
+      i++; // LZW minimum code size
+      skipSubBlocks();
+    } else {
+      break; // malformed; what we have read is all we can trust
+    }
+  }
+  return false;
+}

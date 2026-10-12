@@ -124,7 +124,7 @@ test('copies the snippet to the clipboard', async ({ page, context, browserName 
   await expect(page.getByLabel('Savings')).toBeVisible();
 
   await page.getByRole('button', { name: 'photo.jpg' }).click();
-  await page.getByRole('button', { name: 'Copy' }).click();
+  await page.getByRole('button', { name: 'Copy', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible();
 
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());

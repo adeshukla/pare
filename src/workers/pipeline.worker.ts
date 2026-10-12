@@ -1,11 +1,12 @@
 import * as Comlink from 'comlink';
 import { fromText, union, withSafetyFloor } from '../lib/codepoints';
 import { resolveWidths, scaledHeight } from '../lib/ladder';
-import { stripMetadata } from '../lib/metadata';
+import { isAnimatedGif, stripMetadata } from '../lib/metadata';
 import { compressedPath, fontSlicePath, splitPath, variantPath } from '../lib/naming';
 import {
   coveredCodepoints,
   decodeWoff,
+  encodeWoff,
   detectContainer,
   familyName,
   fontStyle,
@@ -27,14 +28,15 @@ import {
   brotli,
   bundleModule,
   gzip,
-  minifyCss,
+  minifyCssMapped,
   minifyHtml,
   minifyJs,
   minifySvg,
-  squeezeJs,
+  squeezeJsMapped,
 } from './text-codecs';
 import {
   decode,
+  decodeScaled,
   encodeAvif,
   encodeJpeg,
   encodePng,
@@ -84,9 +86,16 @@ async function dimensions(bytes: Uint8Array, mime: string) {
 
 /** The safe output format: stay in the source's own family. */
 function fallbackMime(sourceMime: string): string {
-  if (sourceMime === 'image/png' || sourceMime === 'image/gif') return 'image/png';
+  // Lossless sources stay lossless. A BMP is usually a screenshot or a graphic,
+  // and PNG keeps it exact; a HEIC is a photograph, and JPEG is its universal form.
+  if (sourceMime === 'image/png' || sourceMime === 'image/gif' || sourceMime === 'image/bmp') {
+    return 'image/png';
+  }
   return 'image/jpeg';
 }
+
+/** Formats every browser can display, so the original may stand in as the fallback. */
+const WEB_DISPLAYABLE = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif']);
 
 async function encodeOne(
   data: ImageData,
@@ -202,7 +211,11 @@ async function optimizeFont(
     try {
       const sliced = plan.codepoints ? await subsetFont(sfnt, plan.codepoints) : sfnt;
       const woff2 = await toWoff2(sliced);
+      const woff = settings.woff
+        ? { path: fontSlicePath(path, plan.slug, 'woff'), bytes: await encodeWoff(sliced) }
+        : undefined;
       slices.push({
+        woff,
         name: plan.name,
         path: fontSlicePath(path, plan.slug),
         bytes: woff2,
@@ -237,29 +250,51 @@ async function optimizeFont(
  * Phase 3 - text
  * ------------------------------------------------------------------ */
 
+type MinifiedText = { code: string; map?: string; note?: string };
+
 async function minifyByKind(
   source: string,
   kind: TextKind,
   path: string,
   settings: TextSettings,
-): Promise<string | undefined> {
-  if (kind === 'css') return settings.css ? minifyCss(source, path, settings.target) : undefined;
+): Promise<MinifiedText | undefined> {
+  if (kind === 'css') {
+    return settings.css ? minifyCssMapped(source, path, settings.target, settings.sourceMaps) : undefined;
+  }
 
   if (kind === 'js') {
     if (!settings.js) return undefined;
-    const first = await minifyJs(source);
-    if (!settings.deeper) return first.code;
+    const first = await minifyJs(source, {
+      level: settings.jsLevel,
+      preset: settings.target,
+      sourceMap: settings.sourceMaps,
+      filename: path,
+    });
+    const note = first.kept
+      ? 'Kept every variable name in this file, because it uses ' +
+        first.kept +
+        ', which depends on them. It was still minified.'
+      : undefined;
+    if (settings.jsLevel !== 'max' || first.kept) return { code: first.code, map: first.map, note };
     // A failed second pass is not a failed minification: keep the first result.
     try {
-      const twice = await squeezeJs(first.code, first.module);
-      return twice.length < first.code.length ? twice : first.code;
+      const twice = await squeezeJsMapped(first.code, first.module, settings.target, first.map, path);
+      return twice.code.length < first.code.length ? twice : { code: first.code, map: first.map };
     } catch {
-      return first.code;
+      return { code: first.code, map: first.map };
     }
   }
 
-  if (kind === 'html') return settings.html ? minifyHtml(source, settings.target) : undefined;
-  return settings.svg ? minifySvg(source, path) : undefined;
+  if (kind === 'html') {
+    return settings.html ? { code: await minifyHtml(source, settings.target, settings.jsLevel) } : undefined;
+  }
+  return settings.svg ? { code: await minifySvg(source, path) } : undefined;
+}
+
+/** The comment that points a browser's dev tools at a map, in each language. */
+function mapComment(kind: TextKind, mapPath: string): string {
+  const name = mapPath.slice(mapPath.lastIndexOf('/') + 1);
+  return kind === 'css' ? `\n/*# sourceMappingURL=${name} */` : `\n//# sourceMappingURL=${name}`;
 }
 
 async function optimizeText(
@@ -293,17 +328,23 @@ async function optimizeText(
     if (minified === undefined) {
       skipped = 'Minifying ' + kind.toUpperCase() + ' is turned off, so this was copied unchanged.';
     } else {
-      const candidate = encoder.encode(minified);
+      if (minified.note) base.warnings.push(minified.note);
+      const mapPath = path + '.map';
+      const code = minified.map ? minified.code + mapComment(kind, mapPath) : minified.code;
+      const candidate = encoder.encode(code);
       if (candidate.byteLength >= bytes.byteLength) {
         // Already minified, or too small to gain. Never ship a bigger file.
         skipped = 'Already as small as it gets - the original was kept.';
       } else {
         output = candidate;
+        if (minified.map) base.map = { path: mapPath, bytes: encoder.encode(minified.map) };
       }
     }
-  } catch {
-    skipped =
-      'Could not read this file as text, so it was copied unchanged. It may use an unusual encoding, or contain a syntax error.';
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    skipped = /not supported yet|configured target environment/i.test(message)
+      ? 'This file uses JavaScript newer than the browsers you chose can run, and it cannot be rewritten for them, so it was copied unchanged. Choose a newer browser range to minify it.'
+      : 'Could not read this file as text, so it was copied unchanged. It may use an unusual encoding, or contain a syntax error.';
   }
 
   base.minified = output;
@@ -342,35 +383,91 @@ async function optimizeText(
  * Phase 4 - folder mode
  * ------------------------------------------------------------------ */
 
+type Reencoded = {
+  bytes: Uint8Array;
+  skipped?: string;
+  warnings: string[];
+  /** Same pixels as AVIF / WebP, kept only when smaller than `bytes`. */
+  avif?: Uint8Array;
+  webp?: Uint8Array;
+};
+
 /**
- * Re-encode an image into its own format, at its own size.
+ * Re-encode an image into its own format, at its own size - and, when asked,
+ * also into AVIF and WebP at that same size.
  *
- * Folder mode deliberately does not turn an <img> into a <picture>. That would
- * mean AVIF and WebP, which is a much bigger saving - but it also reparents the
- * <img>, and a stylesheet written against `.gallery > img` stops matching. Law 2
- * forbids removing nodes and the spirit of it forbids silently restructuring
- * them, so folder mode changes bytes and never markup. The <picture> route stays
- * where it was in Phase 1: a snippet the user pastes in knowingly.
+ * The in-place re-encode changes bytes and never markup. The modern copies only
+ * matter if folder mode then wraps an `<img>` in a `<picture>`, which is opt-in
+ * and fenced (ADR-021); this function just makes the files. Making them here
+ * reuses the one decode rather than paying for a second.
  */
 async function reencodeImage(
   mime: string,
   bytes: Uint8Array,
   quality: number,
   stripFirst: boolean,
-): Promise<{ bytes: Uint8Array; skipped?: string; warnings: string[] }> {
+  modern?: { avif: number; webp: number },
+  onProgress: Progress = () => {},
+): Promise<Reencoded> {
+  const out = await reencodeInPlace(mime, bytes, quality, stripFirst, onProgress);
+  if (!modern || out.source === undefined) return out.result;
+  if (mime !== 'image/jpeg' && mime !== 'image/png') return out.result;
+
+  const baseline = out.result.bytes.byteLength;
+  const result = out.result;
+  try {
+    onProgress(0.5, 'AVIF copy');
+    const avif = await encodeAvif(out.source, modern.avif);
+    if (avif.byteLength < baseline) result.avif = avif;
+  } catch {
+    result.warnings.push('Could not make an AVIF copy of this image. The others were kept.');
+  }
+  try {
+    onProgress(0.8, 'WebP copy');
+    const webp = await encodeWebp(out.source, modern.webp);
+    if (webp.byteLength < baseline) result.webp = webp;
+  } catch {
+    result.warnings.push('Could not make a WebP copy of this image. The others were kept.');
+  }
+  return result;
+}
+
+async function reencodeInPlace(
+  mime: string,
+  bytes: Uint8Array,
+  quality: number,
+  stripFirst: boolean,
+  onProgress: Progress,
+): Promise<{ result: Reencoded; source?: ImageData }> {
   const warnings: string[] = [];
 
+  onProgress(0.05, 'Decoding');
   let source: ImageData;
   try {
     source = await decode(bytes, mime);
   } catch {
     return {
-      bytes,
-      skipped: 'Could not read this image, so it was copied unchanged.',
-      warnings,
+      result: {
+        bytes,
+        skipped: 'Could not read this image, so it was copied unchanged.',
+        warnings,
+      },
     };
   }
 
+  onProgress(0.2, 'Re-encoding');
+  const result = await encodeSameFormat(source, mime, bytes, quality, stripFirst, warnings);
+  return { result, source };
+}
+
+async function encodeSameFormat(
+  source: ImageData,
+  mime: string,
+  bytes: Uint8Array,
+  quality: number,
+  stripFirst: boolean,
+  warnings: string[],
+): Promise<Reencoded> {
   let encoded: Uint8Array;
   try {
     if (mime === 'image/png') encoded = await encodePng(source);
@@ -402,7 +499,43 @@ async function reencodeImage(
   return { bytes: encoded, warnings };
 }
 
+/** The width a quality preview is measured at, or the image's own if smaller. */
+const PREVIEW_WIDTH = 800;
+
+/** One decoded, scaled sample per worker, so dragging a slider only re-encodes. */
+let previewSource: { key: string; data: ImageData } | undefined;
+
 const api = {
+  /**
+   * Bytes one format and quality would produce for one sample image, so the
+   * slider can show its cost before anything runs. Undefined if the sample will
+   * not decode; the slider just shows nothing then.
+   */
+  async previewSize(
+    key: string,
+    mime: string,
+    bytes: Uint8Array,
+    format: OutputFormat,
+    quality: number,
+  ): Promise<{ bytes: number; width: number } | undefined> {
+    try {
+      if (previewSource?.key !== key) {
+        const full = await decode(bytes, mime);
+        const width = Math.min(PREVIEW_WIDTH, full.width);
+        const data =
+          width === full.width
+            ? full
+            : await resize(full, width, scaledHeight(full.width, full.height, width));
+        previewSource = { key, data };
+      }
+      const data = previewSource.data;
+      const encoded = await encodeOne(data, format, fallbackMime(mime), quality);
+      return { bytes: encoded.byteLength, width: data.width };
+    } catch {
+      return undefined;
+    }
+  },
+
   async inspect(bytes: Uint8Array, mime: string, kind: string): Promise<Inspection> {
     const dims = kind === 'image' ? await dimensions(bytes, mime) : {};
     return { ...dims, gzipBytes: await gzipSize(bytes), rawBytes: bytes.byteLength };
@@ -425,28 +558,42 @@ const api = {
       warnings: [],
     };
 
+    if (mime === 'image/gif' && isAnimatedGif(bytes)) {
+      // Only a first frame could come out, and a still picture is a different
+      // file, not a smaller one. Leave the animation alone.
+      return {
+        ...base,
+        skipped:
+          'This GIF is animated. Pare cannot make an animated AVIF or WebP, and a still image would lose the animation, so it was copied unchanged.',
+      };
+    }
+
     onProgress(0.05, 'Decoding');
     let source: ImageData;
     try {
       source = await decode(bytes, mime);
     } catch {
-      return {
-        ...base,
-        skipped:
-          'Could not read this file - it may be damaged, or use a format this browser cannot decode. It was copied unchanged.',
-      };
+      // Perhaps too big to hold in memory at full size. Downscale while
+      // decoding and try once more before giving up (ARCHITECTURE.md).
+      const largest = Math.max(...settings.widths);
+      try {
+        source = await decodeScaled(bytes, mime, largest);
+        base.warnings.push(
+          'This image was too large to work on at full size, so it was scaled to ' +
+            largest +
+            'px wide while reading it. The largest file made is that width, not the original.',
+        );
+      } catch {
+        return {
+          ...base,
+          skipped:
+            'Could not read this file - it may be damaged, too large for this browser tab, or use a format this browser cannot decode. It was copied unchanged.',
+        };
+      }
     }
 
     base.naturalWidth = source.width;
     base.naturalHeight = source.height;
-
-    if (mime === 'image/gif') {
-      // Only the first frame is decoded. Saying nothing here would report an
-      // animation turning into a still picture as a straight saving.
-      base.warnings.push(
-        'This is a GIF and only its first frame was used, so the output does not animate. The original is still in your own folder, untouched.',
-      );
-    }
 
     const widths = resolveWidths(settings.widths, source.width);
     if (widths.length === 0) {
@@ -506,8 +653,10 @@ const api = {
 
     // Law 5: an "optimized" file that is bigger than the original is not a saving.
     // Keep the original bytes instead, metadata-stripped, and say so out loud.
+    // Never for HEIC or BMP: "keeping the original" would hand most browsers a
+    // file they cannot show (HEIC) or a needlessly huge one (BMP).
     const fullSize = variants.find((v) => v.format === 'fallback' && v.width === source.width);
-    if (fullSize && fullSize.bytes.byteLength >= bytes.byteLength) {
+    if (fullSize && fullSize.bytes.byteLength >= bytes.byteLength && WEB_DISPLAYABLE.has(mime)) {
       const stripped = settings.stripMetadata
         ? stripMetadata(bytes, mime)
         : { bytes, removed: 0 };
@@ -537,6 +686,21 @@ const api = {
   optimizeFont,
   optimizeText,
   reencodeImage,
+
+  /**
+   * BMP to PNG, for whole-site mode (ADR-026). Lossless both ways, so the page
+   * looks exactly as it did; the file just stops being uncompressed.
+   */
+  async bmpToPng(bytes: Uint8Array): Promise<{ bytes?: Uint8Array; skipped?: string }> {
+    try {
+      const source = await decode(bytes, 'image/bmp');
+      const png = await encodePng(source);
+      if (png.byteLength >= bytes.byteLength) return { skipped: 'Already as small as it gets - the original was kept.' };
+      return { bytes: png };
+    } catch {
+      return { skipped: 'Could not read this BMP, so it was copied unchanged.' };
+    }
+  },
   bundleModule,
 
   /**

@@ -27,3 +27,9 @@ declare module 'html-minifier-terser' {
   };
   export function minify(source: string, options?: Options): Promise<string>;
 }
+declare const __BUILD_ID__: string;
+
+declare module 'libheif-js/libheif-wasm/libheif-bundle.mjs' {
+  const factory: (options?: unknown) => unknown;
+  export default factory;
+}

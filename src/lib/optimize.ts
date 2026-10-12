@@ -137,7 +137,7 @@ export function summarise(rows: Row[]): Report {
         l.emitted += font.bytesBefore;
       } else {
         l.served += font.bytesServed;
-        for (const s of font.slices) l.emitted += s.bytes.byteLength;
+        for (const s of font.slices) l.emitted += s.bytes.byteLength + (s.woff?.bytes.byteLength ?? 0);
       }
     }
 
@@ -150,7 +150,10 @@ export function summarise(rows: Row[]): Report {
       if (text.skipped) l.skipped++;
       // A server sends the smallest encoding it has; that is what a visitor pays.
       l.served += text.bytesTransport;
-      l.emitted += text.bytesAfter + text.siblings.reduce((n, s) => n + s.bytes.byteLength, 0);
+      l.emitted +=
+        text.bytesAfter +
+        text.siblings.reduce((n, s) => n + s.bytes.byteLength, 0) +
+        (text.map?.bytes.byteLength ?? 0);
     }
   }
 
@@ -206,6 +209,7 @@ function fontSnippet(outcome: FontOutcome, settings: FontSettings): string | und
     weight: outcome.weight,
     italic: outcome.italic,
     slices: outcome.slices.map((s) => ({
+      woffPath: s.woff?.path,
       path: s.path,
       unicodeRange: s.unicodeRange,
       name: s.name,
