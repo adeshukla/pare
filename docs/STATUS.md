@@ -10,7 +10,7 @@ Updated: 2026-10-13
 | **Phase 3 — Text assets** | ✅ complete (CSSO rejected — ADR-020) |
 | **Phase 4 — Folder mode** | ✅ complete (critical CSS not shipped — ADR-018) |
 | **Phase 5 — Verification** | ✅ complete (web-vitals not shipped — ADR-019) |
-| Live at | — **the deploy job runs and fails at its Publish step.** See below. |
+| Live at | **https://pare-3sm.pages.dev** — deployed 2026-10-13 from `9beb4c4` with `wrangler pages deploy`. `pare.devstash.me` not yet attached. |
 | Initial JS | **97.8 KB gzipped** of a 150 KB budget |
 | Tests | 228 unit (Vitest) + 87 browser tests × Chromium, Firefox, WebKit, plus 1 offline test against the built site — all passing; 4 skips where an engine cannot synthesise a drop or paste |
 
@@ -203,7 +203,9 @@ WordPress · ADR-028 minification levels, maps and browser ranges
 ## Before launch
 
 - [x] Push to a remote and watch CI run — it runs; verify and browser jobs pass
-- [ ] Create the Cloudflare Pages project, set `CLOUDFLARE_API_TOKEN` and
+- [x] Cloudflare Pages project `pare` exists (production branch `master`); first
+      production deploy done by hand
+- [ ] Set `CLOUDFLARE_API_TOKEN` and
       `CLOUDFLARE_ACCOUNT_ID`, then re-run the deploy job and read its log
 - [ ] Point `pare.devstash.me` at it (custom domain on the Pages project)
 - [ ] Run folder mode against a real WordPress or static-site export
