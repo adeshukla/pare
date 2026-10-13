@@ -168,6 +168,8 @@ const MIME_BY_KIND: Partial<Record<Asset['kind'], string>> = {
   css: 'text/css',
   js: 'text/javascript',
   svg: 'image/svg+xml',
+  json: 'application/json',
+  xml: 'application/xml',
 };
 
 /**

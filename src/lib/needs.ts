@@ -35,6 +35,9 @@ export function needsFor(asset: Asset, settings: Settings, format?: OutputFormat
       return ['html', 'lightning', 'esbuild', ...transport];
     case 'svg':
       return ['svgo', ...transport];
+    case 'json':
+    case 'xml':
+      return [...transport];
     default:
       return [];
   }

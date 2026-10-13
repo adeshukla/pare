@@ -51,7 +51,7 @@ export default defineConfig({
     // have to be pre-bundled to be importable at all. Naming them here also
     // pins the work to server start-up: discovered later, Vite re-optimizes and
     // reloads the page mid-run, which tears down whatever was mid-encode.
-    include: ['html-minifier-terser', 'svgo/browser', 'terser'],
+    include: ['html-minifier-terser', 'svgo/browser', 'terser', 'utif2', 'omggif'],
   },
 
   build: {

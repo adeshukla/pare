@@ -16,6 +16,8 @@ const KIND_COLOR: Record<ReportKind, string> = {
   js: '#eab308',
   html: '#e11d48',
   svg: '#10b981',
+  json: '#64748b',
+  xml: '#0ea5e9',
 };
 
 export function FilesSavings({ report, children }: { report: Report; children: ReactNode }) {

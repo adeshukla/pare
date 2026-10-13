@@ -3,6 +3,9 @@ import { fromText, union, withSafetyFloor } from '../lib/codepoints';
 import { resolveWidths, scaledHeight } from '../lib/ladder';
 import { isAnimatedGif, stripMetadata } from '../lib/metadata';
 import { fitToSize } from '../lib/target';
+import { minifyJson, minifyXml } from '../lib/data-minify';
+import { gifInfo, gifToAnimatedWebp } from '../lib/animated-webp';
+import { tiffPages } from './tiff';
 import { compressedPath, fontSlicePath, splitPath, variantPath } from '../lib/naming';
 import {
   coveredCodepoints,
@@ -87,12 +90,15 @@ async function dimensions(bytes: Uint8Array, mime: string) {
 }
 
 /** The safe output format: stay in the source's own family. */
-function fallbackMime(sourceMime: string): string {
+function fallbackMime(sourceMime: string, source?: ImageData): string {
   // Lossless sources stay lossless. A BMP is usually a screenshot or a graphic,
   // and PNG keeps it exact; a HEIC is a photograph, and JPEG is its universal form.
   if (sourceMime === 'image/png' || sourceMime === 'image/gif' || sourceMime === 'image/bmp') {
     return 'image/png';
   }
+  // A TIFF is a scan or a photograph as often as a graphic: JPEG unless it has
+  // transparency, which JPEG would lose (ADR-038).
+  if (sourceMime === 'image/tiff' && source && !isOpaque(source)) return 'image/png';
   return 'image/jpeg';
 }
 
@@ -185,7 +191,7 @@ async function fitFormat(
   // the limit keeps its format: recompressed losslessly it only gets smaller.
   const losslessSource = sourceMime === 'image/png' || sourceMime === 'image/gif' || sourceMime === 'image/bmp';
   const toJpeg = format === 'fallback' && losslessSource && sourceBytes > limit && isOpaque(source);
-  const outMime = format !== 'fallback' ? 'image/' + format : toJpeg ? 'image/jpeg' : fallbackMime(sourceMime);
+  const outMime = format !== 'fallback' ? 'image/' + format : toJpeg ? 'image/jpeg' : fallbackMime(sourceMime, source);
   const lossless = outMime === 'image/png';
   const name = format === 'fallback' ? (outMime === 'image/png' ? 'PNG' : 'JPEG') : format.toUpperCase();
 
@@ -380,7 +386,7 @@ async function optimizeFont(
  * Phase 3 - text
  * ------------------------------------------------------------------ */
 
-type MinifiedText = { code: string; map?: string; note?: string };
+type MinifiedText = { code: string; map?: string; note?: string; skipped?: string };
 
 async function minifyByKind(
   source: string,
@@ -417,6 +423,18 @@ async function minifyByKind(
 
   if (kind === 'html') {
     return settings.html ? { code: await minifyHtml(source, settings.target, settings.jsLevel) } : undefined;
+  }
+  if (kind === 'json') {
+    if (!settings.json) return undefined;
+    const code = minifyJson(source);
+    return code === undefined
+      ? { code: source, skipped: 'This is not valid JSON, so it was left exactly as it was.' }
+      : { code };
+  }
+  if (kind === 'xml') {
+    if (!settings.xml) return undefined;
+    const result = minifyXml(source);
+    return 'code' in result ? result : { code: source, skipped: result.skipped + ' It was copied unchanged.' };
   }
   return settings.svg ? { code: await minifySvg(source, path) } : undefined;
 }
@@ -457,6 +475,8 @@ async function optimizeText(
 
     if (minified === undefined) {
       skipped = 'Minifying ' + kind.toUpperCase() + ' is turned off, so this was copied unchanged.';
+    } else if (minified.skipped) {
+      skipped = minified.skipped;
     } else {
       if (minified.note) base.warnings.push(minified.note);
       const mapPath = path + '.map';
@@ -653,6 +673,67 @@ const PREVIEW_WIDTH = 800;
 /** One decoded, scaled sample per worker, so dragging a slider only re-encodes. */
 let previewSource: { key: string; data: ImageData } | undefined;
 
+/** Pixels in all frames together beyond which an animation is not converted. */
+const MAX_ANIMATION_PIXELS = 150_000_000;
+
+/**
+ * An animated GIF becomes an animated WebP at its own size, with the GIF kept
+ * as the fallback (ADR-038). A still picture would lose the animation, so
+ * every other outcome copies the GIF unchanged and says why.
+ */
+async function animatedGif(
+  base: ImageOutcome,
+  path: string,
+  bytes: Uint8Array,
+  settings: ImageSettings,
+  onProgress: Progress,
+): Promise<ImageOutcome> {
+  if (settings.output === 'target') {
+    return { ...base, skipped: 'This GIF is animated, and a size limit cannot be met by an animation without losing frames. It was copied unchanged.' };
+  }
+  if (!settings.formats.webp) {
+    return { ...base, skipped: 'This GIF is animated. Turn on WebP to get an animated WebP - AVIF and a still picture would lose the animation - so it was copied unchanged.' };
+  }
+  let info: ReturnType<typeof gifInfo>;
+  try {
+    info = gifInfo(bytes);
+  } catch {
+    return { ...base, skipped: 'This animated GIF could not be read, so it was copied unchanged.' };
+  }
+  if (info.width * info.height * info.frames > MAX_ANIMATION_PIXELS) {
+    return { ...base, skipped: `This animation is too large to convert in a browser tab (${info.frames} frames of ${info.width}×${info.height}), so it was copied unchanged.` };
+  }
+
+  let webp: Uint8Array;
+  try {
+    webp = await gifToAnimatedWebp(
+      bytes,
+      (rgba, width, height) => encodeWebp(new ImageData(rgba as Uint8ClampedArray<ArrayBuffer>, width, height), settings.quality.webp),
+      (done, total) => onProgress(0.05 + 0.9 * (done / total), `Frame ${done} of ${total}`),
+    );
+  } catch {
+    return { ...base, skipped: 'This animated GIF could not be converted, so it was copied unchanged.' };
+  }
+  if (webp.byteLength >= bytes.byteLength) {
+    return { ...base, skipped: 'An animated WebP came out no smaller than this GIF, so the GIF was kept unchanged.' };
+  }
+
+  const { width, height } = info;
+  const variants: Variant[] = [
+    { format: 'webp', mime: 'image/webp', width, height, path: variantPath(path, width, 'image/webp'), bytes: webp },
+  ];
+  if (settings.formats.fallback) {
+    variants.push({ format: 'fallback', mime: 'image/gif', width, height, path: variantPath(path, width, 'image/gif'), bytes });
+  }
+  base.warnings.push(
+    `Kept as an animation (${info.frames} frames) at its own size: an animated WebP` +
+      (settings.formats.fallback ? ', with the original GIF for any browser that cannot show it' : '') +
+      (settings.formats.avif ? '. AVIF is not made for animations.' : '.'),
+  );
+  onProgress(1, 'Done');
+  return { ...base, naturalWidth: width, naturalHeight: height, variants };
+}
+
 const api = {
   /**
    * Bytes one format and quality would produce for one sample image, so the
@@ -677,7 +758,7 @@ const api = {
         previewSource = { key, data };
       }
       const data = previewSource.data;
-      const encoded = await encodeOne(data, format, fallbackMime(mime), quality);
+      const encoded = await encodeOne(data, format, fallbackMime(mime, data), quality);
       return { bytes: encoded.byteLength, width: data.width };
     } catch {
       return undefined;
@@ -706,14 +787,15 @@ const api = {
       warnings: [],
     };
 
-    if (mime === 'image/gif' && isAnimatedGif(bytes)) {
-      // Only a first frame could come out, and a still picture is a different
-      // file, not a smaller one. Leave the animation alone.
-      return {
-        ...base,
-        skipped:
-          'This GIF is animated. Pare cannot make an animated AVIF or WebP, and a still image would lose the animation, so it was copied unchanged.',
-      };
+    if (mime === 'image/gif' && isAnimatedGif(bytes)) return animatedGif(base, path, bytes, settings, onProgress);
+
+    if (mime === 'image/tiff') {
+      try {
+        const pages = await tiffPages(bytes);
+        if (pages > 1) base.warnings.push(`This TIFF holds ${pages} pages; only the first was converted.`);
+      } catch {
+        // The decode below says what is wrong, if anything is.
+      }
     }
 
     onProgress(0.05, 'Decoding');
@@ -800,7 +882,7 @@ const api = {
       return { ...base, skipped: 'No output formats are turned on.' };
     }
 
-    const fbMime = fallbackMime(mime);
+    const fbMime = fallbackMime(mime, source);
     const total = widths.length * formats.length;
     const variants: Variant[] = [];
     let done = 0;

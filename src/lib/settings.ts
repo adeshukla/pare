@@ -107,6 +107,10 @@ export type TextSettings = {
   js: boolean;
   html: boolean;
   svg: boolean;
+  /** JSON and web app manifests: whitespace outside strings only. ADR-038. */
+  json: boolean;
+  /** Sitemaps and feeds: indentation between tags only. ADR-038. */
+  xml: boolean;
   /** Emit .gz siblings, built with the native CompressionStream. */
   gzip: boolean;
   /** Emit .br siblings. Costs a WASM download on first use. */
@@ -178,6 +182,8 @@ export const TEXT_DEFAULTS: TextSettings = {
   js: true,
   html: true,
   svg: true,
+  json: true,
+  xml: true,
   gzip: true,
   brotli: false,
   target: 'wide',

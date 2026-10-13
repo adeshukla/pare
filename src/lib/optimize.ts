@@ -1,5 +1,5 @@
 import * as Comlink from 'comlink';
-import { hasGpsLocation } from './metadata';
+import { hasGpsLocation, isAnimatedGif } from './metadata';
 import { needsFor } from './needs';
 import { poolSize, runAll } from './pool';
 import { defaultImgWidth } from './ladder';
@@ -16,7 +16,7 @@ export type Settings = {
 };
 
 /** Asset kinds the text pipeline handles, and that the font scanner reads. */
-const TEXT_KINDS = new Set<Asset['kind']>(['css', 'js', 'html', 'svg']);
+const TEXT_KINDS = new Set<Asset['kind']>(['css', 'js', 'html', 'svg', 'json', 'xml']);
 export const isTextKind = (kind: Asset['kind']): kind is TextKind => TEXT_KINDS.has(kind);
 
 /** One input file and everything we learned about it. */
@@ -58,7 +58,7 @@ export function servedVariant(outcome: ImageOutcome): Variant | undefined {
  * Report
  * ------------------------------------------------------------------ */
 
-export type ReportKind = 'image' | 'font' | 'css' | 'js' | 'html' | 'svg';
+export type ReportKind = 'image' | 'font' | 'css' | 'js' | 'html' | 'svg' | 'json' | 'xml';
 
 export const REPORT_LABEL: Record<ReportKind, string> = {
   image: 'Images',
@@ -67,6 +67,8 @@ export const REPORT_LABEL: Record<ReportKind, string> = {
   js: 'JavaScript',
   html: 'HTML',
   svg: 'SVG',
+  json: 'JSON',
+  xml: 'XML',
 };
 
 export type KindLine = {
@@ -210,7 +212,7 @@ export function summarise(rows: Row[]): Report {
     }
   }
 
-  const ordered: ReportKind[] = ['image', 'font', 'css', 'js', 'html', 'svg'];
+  const ordered: ReportKind[] = ['image', 'font', 'css', 'js', 'html', 'svg', 'json', 'xml'];
   const out = ordered.map((k) => lines.get(k)).filter((l): l is KindLine => l !== undefined);
 
   return {
@@ -319,8 +321,11 @@ export async function optimizeAssets(
   // Width slices per format: as many as idle workers allow, at most three
   // (a ladder has five or six widths).
   const slices = split ? Math.max(1, Math.min(3, Math.floor(poolSize / Math.max(1, images * enabled.length)))) : 1;
+  // An animation is converted as a whole (ADR-038), so it is never split.
+  const splittable = (asset: Asset) =>
+    asset.kind === 'image' && split && !(asset.mime === 'image/gif' && isAnimatedGif(asset.bytes));
   const jobs: Job[] = assets.flatMap((asset, index): Job[] =>
-    asset.kind === 'image' && split
+    splittable(asset)
       ? enabled.flatMap((format, f) =>
           Array.from({ length: slices }, (_, s) => ({
             asset,

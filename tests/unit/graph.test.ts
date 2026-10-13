@@ -219,3 +219,22 @@ describe('hashing', () => {
     expect(replaceBasename('hero.png#frag', 'hero.abcd1234.png')).toBe('hero.abcd1234.png#frag');
   });
 });
+
+describe('data files (ADR-038)', () => {
+  const enc = new TextEncoder();
+  const file = (path: string, text: string): Asset => {
+    const bytes = enc.encode(text);
+    return { path, bytes, ...classify(path, bytes), refs: [], resolvable: false };
+  };
+
+  it('keeps the name of anything a manifest or sitemap names', () => {
+    const graph = buildGraph([
+      file('index.html', '<link rel="manifest" href="app.webmanifest"><link rel="icon" href="icon-192.png"><img src="hero.png">'),
+      file('app.webmanifest', '{"icons":[{"src":"/icon-192.png"}]}'),
+      file('icon-192.png', 'x'),
+      file('hero.png', 'x'),
+    ]);
+    expect(graph.renameable.has('icon-192.png')).toBe(false);
+    expect(graph.renameable.has('hero.png')).toBe(true);
+  });
+});

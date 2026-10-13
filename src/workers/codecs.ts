@@ -190,6 +190,10 @@ export async function decodeWasm(bytes: Uint8Array, mime: string): Promise<Image
       const { decodeHeic } = await import('./heic');
       return decodeHeic(bytes);
     }
+    case 'image/tiff': {
+      const { decodeTiff } = await import('./tiff');
+      return decodeTiff(bytes);
+    }
     default:
       throw new Error(`no decoder for ${mime}`);
   }

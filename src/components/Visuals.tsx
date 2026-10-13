@@ -278,6 +278,8 @@ const KIND_COLOR: Record<string, string> = {
   js: 'linear-gradient(135deg,#eab308,#f59e0b)',
   html: 'linear-gradient(135deg,#f97316,#e11d48)',
   svg: 'linear-gradient(135deg,#10b981,#14b8a6)',
+  json: 'linear-gradient(135deg,#64748b,#475569)',
+  xml: 'linear-gradient(135deg,#0ea5e9,#0284c7)',
   other: 'linear-gradient(135deg,#71717a,#52525b)',
 };
 

@@ -562,6 +562,8 @@ const TEXT_TOGGLES: Array<{ key: keyof TextSettings; label: string }> = [
   { key: 'js', label: 'Minify JavaScript' },
   { key: 'html', label: 'Minify HTML' },
   { key: 'svg', label: 'Minify SVG' },
+  { key: 'json', label: 'Minify JSON and manifests' },
+  { key: 'xml', label: 'Minify XML, sitemaps and feeds' },
 ];
 
 function TextControls({
