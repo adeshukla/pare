@@ -67,6 +67,16 @@ function positive(text: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** One-click limits people are most often given. */
+const TARGET_PRESETS: Array<[string, number]> = [
+  ['20 KB', 20],
+  ['50 KB', 50],
+  ['100 KB', 100],
+  ['200 KB', 200],
+  ['500 KB', 500],
+  ['1 MB', 1024],
+];
+
 function parseWidths(text: string): number[] {
   const parsed = text
     .split(/[,\s]+/)
@@ -250,7 +260,7 @@ function ImageControls({
                 style={{ ['--fill' as string]: settings.quality[format] }}
               />
             </div>
-            {sample && settings.formats[format] && (
+            {sample && settings.formats[format] && settings.output !== 'target' && (
               <div className="mt-1.5 pl-11">
                 <SizePreview
                   sample={sample}
@@ -275,16 +285,62 @@ function ImageControls({
             options={[
               { value: 'responsive', label: 'Responsive set' },
               { value: 'single', label: 'One size' },
+              { value: 'target', label: 'Under a size' },
             ]}
           />
           <span className="mt-1.5 block text-xs text-muted">
             {settings.output === 'responsive'
               ? 'Several widths, and markup that lets each screen download the one it needs.'
-              : 'One file per format at the size you set. For a thumbnail, an avatar, or an image you place yourself.'}
+              : settings.output === 'single'
+                ? 'One file per format at the size you set. For a thumbnail, an avatar, or an image you place yourself.'
+                : 'One file per format, each at or under a file size - for an upload form, an email or a chat.'}
           </span>
         </div>
 
-        {settings.output === 'single' ? (
+        {settings.output === 'target' ? (
+          <div className="rise grid gap-3">
+            <div>
+              <span className="text-sm font-medium">Every file at or under</span>
+              <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Common size limits">
+                {TARGET_PRESETS.map(([label, value]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={settings.targetKb === value}
+                    onClick={() => patch({ targetKb: value })}
+                    className={`chip cursor-pointer transition-colors ${
+                      settings.targetKb === value
+                        ? 'border-accent bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] font-semibold text-ink'
+                        : 'hover:border-[color-mix(in_srgb,var(--color-ink)_35%,transparent)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="block text-sm font-medium">
+              Or any size, in KB
+              <input
+                key={settings.targetKb}
+                type="number"
+                min={1}
+                inputMode="numeric"
+                defaultValue={settings.targetKb}
+                onBlur={(e) => {
+                  const n = Number.parseFloat(e.target.value);
+                  if (Number.isFinite(n) && n > 0) patch({ targetKb: n });
+                }}
+                className="field"
+              />
+            </label>
+            <span className="text-xs text-muted">
+              Pare lowers quality first and makes the picture smaller only if it has to, then tells
+              you what it changed. A photo without transparency comes out as JPEG, which is what
+              most upload forms ask for.
+            </span>
+          </div>
+        ) : settings.output === 'single' ? (
           <div className="rise grid gap-3">
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-sm font-medium">

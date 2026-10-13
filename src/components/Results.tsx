@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { download, mainOutput } from '../lib/emit';
 import { bytes, reduction } from '../lib/format';
 import { servedVariant, type Row } from '../lib/optimize';
 import { Compare } from './Compare';
@@ -160,6 +161,39 @@ function measure(row: Row): { before: number; after?: number; detail: string } {
   return { before: raw, after: undefined, detail: row.state === 'done' ? 'copied unchanged' : '' };
 }
 
+/**
+ * Save and, where the system offers it, Share the row's main file (ADR-036).
+ * On a phone these are the way out: a zip lands in Downloads, unopened, while a
+ * shared photo goes straight to the chat or form it was made for.
+ */
+function FileActions({ row }: { row: Row }) {
+  const file = useMemo(() => mainOutput(row), [row]);
+  if (!file) return null;
+  const shareable = typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
+  return (
+    <span className="mt-1.5 flex flex-wrap gap-1.5">
+      <button onClick={() => download(file, file.name)} className="btn btn-sm" aria-label={'Save ' + file.name}>
+        <Icon name="download" size={13} />
+        Save
+      </button>
+      {shareable && (
+        <button
+          onClick={() =>
+            void navigator.share({ files: [file] }).catch(() => {
+              // Dismissed, or the target refused it; the Save button still works.
+            })
+          }
+          className="btn btn-sm"
+          aria-label={'Share ' + file.name}
+        >
+          <Icon name="share" size={13} />
+          Share
+        </button>
+      )}
+    </span>
+  );
+}
+
 function FileRow({ row, index }: { row: Row; index: number }) {
   const [open, setOpen] = useState(false);
   const { before, after, detail } = measure(row);
@@ -209,10 +243,11 @@ function FileRow({ row, index }: { row: Row; index: number }) {
                 <span className="block font-mono text-[13px] font-medium break-all">{row.asset.path}</span>
               )}
               <span className="mt-0.5 block truncate text-xs text-muted">{status}</span>
+              {row.state === 'done' && <FileActions row={row} />}
             </div>
           </div>
         </td>
-        <td className="tnum py-3 pr-3 text-right text-muted">{bytes(before)}</td>
+        <td className="tnum hidden py-3 pr-3 text-right text-muted sm:table-cell">{bytes(before)}</td>
         <td className="tnum py-3 pr-3 text-right font-medium">
           {row.state === 'done' ? (after === undefined ? '—' : bytes(after)) : ''}
         </td>
@@ -285,9 +320,9 @@ export function Results({ rows }: { rows: Row[] }) {
         <thead>
           <tr className="border-b border-rule text-left text-xs text-muted">
             <th className="py-2.5 pr-3 pl-3 font-medium">File</th>
-            <th className="w-[17%] py-2.5 pr-3 text-right font-medium">Before</th>
-            <th className="w-[17%] py-2.5 pr-3 text-right font-medium">After</th>
-            <th className="w-[22%] py-2.5 pr-3 text-right font-medium">Change</th>
+            <th className="hidden w-[17%] py-2.5 pr-3 text-right font-medium sm:table-cell">Before</th>
+            <th className="w-[22%] sm:w-[17%] py-2.5 pr-3 text-right font-medium">After</th>
+            <th className="w-[28%] sm:w-[22%] py-2.5 pr-3 text-right font-medium">Change</th>
           </tr>
         </thead>
         <tbody>

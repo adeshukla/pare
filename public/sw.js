@@ -46,19 +46,58 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/**
+ * Files shared to Pare from another app (the Android share sheet, ADR-036).
+ * The system POSTs them here; there is no server to take them, so the worker
+ * does: they are kept in a cache of their own - not a 'pare-' one, which a
+ * deploy would delete - and the page is opened to pick them up and clear them.
+ * They never leave the device.
+ */
+const SHARED = 'shared-files';
+
+async function receiveShare(request) {
+  const form = await request.formData();
+  const cache = await caches.open(SHARED);
+  for (const key of await cache.keys()) await cache.delete(key);
+  let i = 0;
+  for (const file of form.getAll('files')) {
+    if (typeof file === 'string') continue;
+    await cache.put(
+      '/shared/' + i++,
+      new Response(file, {
+        headers: { 'content-type': file.type || 'application/octet-stream', 'x-name': encodeURIComponent(file.name) },
+      }),
+    );
+  }
+  return Response.redirect('/?shared=' + i, 303);
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
+  if (request.method === 'POST' && new URL(request.url).pathname === '/share-target') {
+    event.respondWith(receiveShare(request));
+    return;
+  }
   if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
 
   if (request.mode === 'navigate') {
+    // Each page under its own address (the task pages, ADR-035), without the
+    // query; offline, a page never visited falls back to the main one.
+    const key = new URL(request.url).pathname;
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put('/', copy));
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(key, copy));
+          }
           return response;
         })
-        .catch(() => caches.match('/', { ignoreVary: true })),
+        .catch(() =>
+          caches
+            .match(key, { ignoreVary: true })
+            .then((hit) => hit || caches.match('/', { ignoreVary: true })),
+        ),
     );
     return;
   }

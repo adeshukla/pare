@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { TASKS } from './src/tasks';
 
 const ISOLATION = {
   'Cross-Origin-Opener-Policy': 'same-origin',
@@ -58,6 +59,13 @@ export default defineConfig({
     // scripts/check-budget.mjs walks this to size the *initial* graph only.
     // Without it the budget check cannot tell a lazy codec chunk from the entry.
     manifest: true,
+    // The task pages (ADR-035) are the same app under their own addresses.
+    rolldownOptions: {
+      input: {
+        main: 'index.html',
+        ...Object.fromEntries(TASKS.map((t) => [t.slug, `tools/${t.slug}/index.html`])),
+      },
+    },
   },
 
   test: {

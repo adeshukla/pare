@@ -4,4 +4,24 @@
     <loc>https://pare.devstash.me/</loc>
     <changefreq>monthly</changefreq>
   </url>
+  <url>
+    <loc>https://pare.devstash.me/tools/compress-image/</loc>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://pare.devstash.me/tools/heic-to-jpg/</loc>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://pare.devstash.me/tools/resize-image/</loc>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://pare.devstash.me/tools/convert-to-webp/</loc>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://pare.devstash.me/tools/convert-to-avif/</loc>
+    <changefreq>monthly</changefreq>
+  </url>
 </urlset>

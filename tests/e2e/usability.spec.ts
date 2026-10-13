@@ -80,7 +80,7 @@ test('an optimized photo can be compared with its original', async ({ page }) =>
   await page.locator('input[type=file]').setInputFiles('tests/fixtures/photo.jpg');
   await page.getByRole('button', { name: 'Optimize 1 file' }).click();
   await expect(page.getByLabel('Savings')).toBeVisible();
-  await page.getByRole('button', { name: 'photo.jpg' }).click();
+  await page.getByRole('button', { name: 'photo.jpg', exact: true }).click();
 
   // WebP: every engine under test displays it. Playwright's WebKit on Windows
   // cannot display AVIF, which the page says rather than showing a blank.

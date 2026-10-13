@@ -64,7 +64,7 @@ test('an iPhone HEIC and three kinds of BMP come out as web images', async ({ pa
   await expect(page.getByText(/left\s+unchanged/)).toBeHidden();
   expect(await page.getByText(/\d+% smaller/).count()).toBeGreaterThanOrEqual(4);
 
-  await page.getByRole('button', { name: 'photo.heic' }).click();
+  await page.getByRole('button', { name: 'photo.heic', exact: true }).click();
   const snippet = page.locator('pre');
   await expect(snippet).toContainText('type="image/avif"');
   // The universal fallback for a photograph is JPEG, never the HEIC itself.
@@ -253,7 +253,7 @@ test('choosing the 2017 range adds WOFF fonts for older Safari', async ({ page }
 
   await page.getByRole('button', { name: /^Optimize 2 files$/ }).click();
   await expect(page.getByLabel('Savings')).toBeVisible();
-  await page.getByRole('button', { name: 'plex-mono.ttf' }).click();
+  await page.getByRole('button', { name: 'plex-mono.ttf', exact: true }).click();
   await expect(page.locator('pre')).toContainText('format("woff2")');
   await expect(page.locator('pre')).toContainText('format("woff")');
 });

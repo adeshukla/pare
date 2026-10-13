@@ -22,6 +22,7 @@ const PATHS = {
   monitor: 'M3 5h18v11H3zM8 20h8m-4-4v4',
   check: 'm5 12 5 5 9-10',
   download: 'M12 4v12m0 0-4-4m4 4 4-4M4 20h16',
+  share: 'M12 15V3m0 0L7 8m5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7',
   copy: 'M9 9h10v10H9zM5 15V5h10',
   refresh: 'M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15m0 5v-5h5',
   shield: 'M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z',

@@ -130,6 +130,32 @@ export function outputFiles(rows: Row[]): Record<string, Uint8Array> {
   return files;
 }
 
+/**
+ * The one file a person most likely wants from a row, for Save and Share on a
+ * phone (ADR-036), where a zip is a dead end. For an image: the full-size file
+ * in the most widely readable format made (JPEG/PNG, then WebP, then AVIF).
+ * Undefined when nothing was produced - an unchanged copy is not worth saving.
+ */
+export function mainOutput(row: Row): File | undefined {
+  const name = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+  const image = row.outcome;
+  if (image && !image.skipped && image.variants.length > 0) {
+    const rank = { fallback: 0, webp: 1, avif: 2 } as const;
+    const best = [...image.variants].sort((a, b) => b.width - a.width || rank[a.format] - rank[b.format])[0]!;
+    return new File([best.bytes as BufferSource], name(best.path), { type: best.mime });
+  }
+  const font = row.font;
+  if (font && !font.skipped && font.slices.length > 0) {
+    const s = font.slices[0]!;
+    return new File([s.bytes as BufferSource], name(s.path), { type: 'font/woff2' });
+  }
+  const text = row.text;
+  if (text && !text.skipped) {
+    return new File([text.minified as BufferSource], name(text.inputPath), { type: row.asset.mime });
+  }
+  return undefined;
+}
+
 export function download(data: Uint8Array | Blob, filename: string) {
   const blob = data instanceof Blob ? data : new Blob([data as BufferSource], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);

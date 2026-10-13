@@ -30,7 +30,9 @@ export type ImageSettings = {
    * 'responsive' makes every width on the ladder; 'single' makes one size,
    * for "I just want this 800px wide" or a square thumbnail.
    */
-  output: 'responsive' | 'single';
+  output: 'responsive' | 'single' | 'target';
+  /** For output 'target': every file must come out at or under this many KB. */
+  targetKb: number;
   single: {
     width: number | null;
     height: number | null;
@@ -52,6 +54,7 @@ export const DEFAULTS: ImageSettings = {
   sizes: '(max-width: 768px) 100vw, 50vw',
   lazy: true,
   output: 'responsive',
+  targetKb: 100,
   single: { width: 1200, height: null, fit: 'contain' },
 };
 

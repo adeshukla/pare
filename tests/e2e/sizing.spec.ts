@@ -106,7 +106,7 @@ test('one size, cropped to fill, in a single format', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Optimize 1 file' }).click();
   await expect(page.getByLabel('Savings')).toBeVisible({ timeout: 120_000 });
-  await page.getByRole('button', { name: 'photo.jpg' }).click();
+  await page.getByRole('button', { name: 'photo.jpg', exact: true }).click();
 
   const snippet = page.locator('pre');
   await expect(snippet).toContainText('<img src="photo-300.webp"');

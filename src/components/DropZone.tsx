@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { takeSharedFiles } from '../offline';
 import { canPickDirectory, fromDataTransfer, fromFileList, MAX_FILES, pickDirectory } from '../lib/ingest';
 import { expandZips } from '../lib/unzip';
 import type { Asset } from '../lib/types';
@@ -76,6 +77,11 @@ export function DropZone({
       e.preventDefault();
       void load(() => fromFileList(files));
     };
+
+    // Shared from another app (ADR-036): treated exactly like a drop.
+    void takeSharedFiles().then((files) => {
+      if (files.length > 0) void load(() => fromFileList(files));
+    });
 
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragleave', leave);

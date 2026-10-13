@@ -2,6 +2,7 @@ import * as Comlink from 'comlink';
 import { fromText, union, withSafetyFloor } from '../lib/codepoints';
 import { resolveWidths, scaledHeight } from '../lib/ladder';
 import { isAnimatedGif, stripMetadata } from '../lib/metadata';
+import { fitToSize } from '../lib/target';
 import { compressedPath, fontSlicePath, splitPath, variantPath } from '../lib/naming';
 import {
   coveredCodepoints,
@@ -151,6 +152,90 @@ async function singleSize(
   if (scale >= 1) return source;
   const tw = Math.max(1, Math.round(source.width * scale));
   return resize(source, tw, scaledHeight(source.width, source.height, tw));
+}
+
+/** True when no pixel is even slightly transparent. */
+function isOpaque(data: ImageData): boolean {
+  const d = data.data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) return false;
+  return true;
+}
+
+const kb = (bytes: number) =>
+  bytes >= 1024 * 1024 ? (bytes / 1024 / 1024).toFixed(1) + ' MB' : Math.round(bytes / 1024) + ' KB';
+
+/**
+ * One file in one format, at or under `limit` bytes (ADR-034). Quality first,
+ * then size; every trade is reported in a sentence.
+ */
+async function fitFormat(
+  path: string,
+  source: ImageData,
+  format: OutputFormat,
+  sourceMime: string,
+  sourceBytes: number,
+  limit: number,
+  maxQuality: number,
+  warnings: string[],
+  onProgress: Progress,
+): Promise<Variant> {
+  // A lossless source has no quality dial. Where it has no transparency, JPEG
+  // loses nothing that is there and can reach the limit; that is almost always
+  // what a size limit is for (an upload form, an email). A file already under
+  // the limit keeps its format: recompressed losslessly it only gets smaller.
+  const losslessSource = sourceMime === 'image/png' || sourceMime === 'image/gif' || sourceMime === 'image/bmp';
+  const toJpeg = format === 'fallback' && losslessSource && sourceBytes > limit && isOpaque(source);
+  const outMime = format !== 'fallback' ? 'image/' + format : toJpeg ? 'image/jpeg' : fallbackMime(sourceMime);
+  const lossless = outMime === 'image/png';
+  const name = format === 'fallback' ? (outMime === 'image/png' ? 'PNG' : 'JPEG') : format.toUpperCase();
+
+  const sized = new Map<number, ImageData>();
+  const at = async (scale: number) => {
+    const width = Math.max(1, Math.round(source.width * scale));
+    if (width >= source.width) return source;
+    const hit = sized.get(width);
+    if (hit) return hit;
+    const made = await resize(source, width, scaledHeight(source.width, source.height, width));
+    sized.set(width, made);
+    return made;
+  };
+
+  let tries = 0;
+  const fitted = await fitToSize(
+    async (quality, scale) => {
+      onProgress(Math.min(0.9, 0.1 + tries++ * 0.08), `${name} under ${kb(limit)}`);
+      const image = await at(scale);
+      const bytes = await encodeOne(image, format, outMime, quality);
+      return { bytes: bytes.byteLength, data: bytes, image };
+    },
+    limit,
+    { maxQuality: lossless ? 100 : maxQuality, lossless, width: source.width },
+  );
+
+  const { image, data } = fitted.result;
+  if (toJpeg) {
+    warnings.push(
+      'Saved as JPEG: a PNG cannot trade quality for size, and this image has no transparency, so nothing visible is lost by the change.',
+    );
+  }
+  if (!fitted.fits) {
+    warnings.push(`Could not get the ${name} under ${kb(limit)}. The smallest Pare could make is ${kb(data.byteLength)}.`);
+  } else if (fitted.scale < 1) {
+    warnings.push(
+      `To fit under ${kb(limit)}, the ${name} was made ${image.width}×${image.height} (from ${source.width}×${source.height}).`,
+    );
+  } else if (!lossless && fitted.quality < maxQuality) {
+    warnings.push(`The ${name} was saved at quality ${fitted.quality} (of ${maxQuality}) to fit under ${kb(limit)}.`);
+  }
+
+  return {
+    format,
+    mime: outMime,
+    width: image.width,
+    height: image.height,
+    path: variantPath(path, image.width, outMime),
+    bytes: data,
+  };
 }
 
 const formatLabel = (f: OutputFormat) => (f === 'fallback' ? 'original format' : f.toUpperCase());
@@ -658,6 +743,34 @@ const api = {
     base.naturalWidth = source.width;
     base.naturalHeight = source.height;
 
+    // Under a size limit: one file per format, each fitted (ADR-034).
+    if (settings.output === 'target') {
+      const formats = (['avif', 'webp', 'fallback'] as const).filter((f) => settings.formats[f]);
+      if (formats.length === 0) return { ...base, skipped: 'No output formats are turned on.' };
+      // A width slice (ADR-032) has nothing to do here: one width per format.
+      if (settings.slice && settings.slice.index > 0) return { ...base, empty: true };
+      const limit = Math.max(1, Math.round(settings.targetKb * 1024));
+      const variants: Variant[] = [];
+      for (const format of formats) {
+        try {
+          variants.push(
+            await fitFormat(path, source, format, mime, bytes.byteLength, limit, settings.quality[format], base.warnings, onProgress),
+          );
+        } catch {
+          base.warnings.push(`Could not make the ${formatLabel(format)} version of this image.`);
+        }
+      }
+      if (variants.length === 0) {
+        return { ...base, skipped: 'Nothing could be encoded from this file. It was copied unchanged.' };
+      }
+      // The snippet's width/height describe the largest file made.
+      const largest = variants.reduce((a, b) => (b.width > a.width ? b : a));
+      base.naturalWidth = largest.width;
+      base.naturalHeight = largest.height;
+      onProgress(1, 'Done');
+      return { ...base, variants };
+    }
+
     // One size instead of a ladder: scale (and for "cover", crop) once, then
     // the ladder below runs with exactly that width.
     if (settings.output === 'single') {
@@ -743,7 +856,7 @@ const api = {
       fullSize.bytes.byteLength >= bytes.byteLength &&
       WEB_DISPLAYABLE.has(mime) &&
       // A one-size output is a different picture from the original; never swap it back.
-      settings.output !== 'single'
+      settings.output === 'responsive'
     ) {
       const stripped = settings.stripMetadata
         ? stripMetadata(bytes, mime)

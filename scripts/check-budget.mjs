@@ -6,8 +6,11 @@
 // exist precisely so they are *not* downloaded until a file is dropped. Under
 // that measurement, lazy-loading a 2 MB encoder made the number worse.
 //
-// So: read the Vite manifest, start at the entry, and follow `imports` only.
-// `dynamicImports` are deliberately not followed - that is the whole point.
+// So: start at the scripts the built page itself loads, find them in the Vite
+// manifest, and follow `imports` only. `dynamicImports` are deliberately not
+// followed - that is the whole point. (Starting from the page rather than the
+// manifest's `isEntry` flag: with several pages sharing one app, ADR-035, the
+// app is recorded as a shared chunk and no chunk is flagged an entry.)
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -23,10 +26,12 @@ if (!existsSync(MANIFEST)) {
 }
 
 const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
-const entries = Object.values(manifest).filter((c) => c.isEntry);
+const page = readFileSync(join(DIST, 'index.html'), 'utf8');
+const loaded = new Set([...page.matchAll(/(?:src|href)="\/(assets\/[^"]+\.js)"/g)].map((m) => m[1]));
+const entries = Object.values(manifest).filter((c) => c.isEntry || loaded.has(c.file));
 
 if (entries.length === 0) {
-  console.error('Manifest has no entry chunk.');
+  console.error('No script in dist/index.html is in the manifest.');
   process.exit(1);
 }
 

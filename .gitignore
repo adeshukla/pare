@@ -34,3 +34,6 @@ npm-debug.log*
 
 # throwaway design demos and notes
 scratchpad
+
+# task pages, generated from src/tasks.ts by scripts/make-task-pages.mjs
+/tools

@@ -1001,3 +1001,74 @@ loads from the cache. The drop-time warm-up (ADR-032) goes through the same gate
 **Consequence.** One network download per codec on any browser. No measured
 slowdown locally (twenty photos: 7-8 s with and without), since the wait is only
 the download that had to happen anyway.
+
+## ADR-034 — "Under a size": quality first, then dimensions, always reported
+
+**Status:** accepted
+
+**Context.** The most common thing people ask of an image tool is to make a
+photo fit a limit - 20 KB for an exam portal, 100 KB for a job site, a few MB for
+email. Pare offered quality sliders and widths, which leave the person to guess.
+
+**Decision.** A third output mode, *Under a size*, with one-click limits (20 KB
+to 1 MB) and a free field. For each format turned on, `src/lib/target.ts` tries
+the user's quality; if that is too big, quality 30; if that fits, it searches
+between the two for the highest quality that fits. Only when quality 30 is still
+too big is the image scaled down, by the square root of the overshoot with a
+margin, and the search repeated (at most eight rounds, never below 64 px wide).
+An opaque PNG, GIF or BMP that is over the limit becomes a JPEG, since PNG has no
+quality dial and nothing visible is lost; one already under the limit keeps its
+format. Every trade - lower quality, smaller dimensions, a format change, or a
+limit that could not be met - is a sentence on the file's row.
+
+**Consequence.** One file per format, no responsive ladder: this mode is for a
+file going into a form, not a page. A JPEG photo usually fits in 4-6 encodes.
+`fitToSize` is pure and unit-tested with a fake encoder.
+
+## ADR-035 — Task pages: the same app at its own address
+
+**Status:** accepted
+
+**Context.** People search for a task ("HEIC to JPG", "compress image to 100
+KB"), not for an asset optimizer, and a landing page that says "images, fonts,
+code, whole sites" does not tell them they have found it.
+
+**Decision.** `src/tasks.ts` lists a few tasks, each with its own title,
+description, headline and starting image settings. `scripts/make-task-pages.mjs`
+(run by `dev` and `build`) writes `tools/<slug>/index.html` from `index.html`
+with that page's title, description, canonical and share-card tags and a
+`data-task` attribute, plus `public/sitemap.xml`. The app reads `data-task` for
+the headline and the settings it starts from; each task page keeps its own saved
+settings (`pare:settings:<slug>`), so using one never changes another. The footer
+links every page to the others. The service worker caches each page under its
+own path and falls back to the main page offline.
+
+**Consequence.** Five static pages for the cost of one bundle; no router, no
+server rendering. The generated pages are not committed (`/tools` is ignored).
+With several pages the Vite manifest records the app as a shared chunk rather
+than an entry, so `scripts/check-budget.mjs` now starts from the scripts the
+built `index.html` loads.
+
+## ADR-036 — Save and Share per file, and Pare in the share sheet
+
+**Status:** accepted
+
+**Context.** On a phone, a zip is a dead end: it lands in Downloads and most
+people cannot open it. And the photo someone wants smaller is usually in their
+gallery, not in a file picker.
+
+**Decision.** Every finished row has a *Save* button for its main file - for an
+image, the full-size file in the most widely readable format made (JPEG/PNG,
+then WebP, then AVIF); for a font, the first slice; for code, the minified file -
+and a *Share* button wherever the system can share that file
+(`navigator.canShare`). The web app manifest declares a `share_target`, so on
+Android an installed Pare appears in the share sheet. The system POSTs the files
+to `/share-target`; with no server, the service worker takes them, keeps them in
+a `shared-files` cache (outside the `pare-` caches a deploy deletes), and opens
+`/?shared=N`; the page reads them once as if dropped, then empties the cache and
+tidies the address.
+
+**Consequence.** Files still never leave the device. Share-to-Pare needs the
+service worker, so it works from the second visit on (and only once installed on
+Android). Below the small breakpoint the results table drops its *Before* column
+so the name, Save and the saving fit.

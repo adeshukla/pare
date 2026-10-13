@@ -32,14 +32,26 @@ import { poolSize, warmUp } from './lib/pool';
 import { DEFAULTS, FONT_DEFAULTS, TEXT_DEFAULTS } from './lib/settings';
 import type { Asset } from './lib/types';
 import { verify, type VerifyReport } from './lib/verify';
+import { TASKS, taskPath } from './tasks';
 
-const INITIAL: Settings = { image: DEFAULTS, font: FONT_DEFAULTS, text: TEXT_DEFAULTS };
+/** Set on a task page's <html> by scripts/make-task-pages.mjs (ADR-035). */
+const TASK = TASKS.find((t) => t.slug === document.documentElement.dataset.task);
+
+const INITIAL: Settings = {
+  image: { ...DEFAULTS, ...TASK?.image },
+  font: FONT_DEFAULTS,
+  text: TEXT_DEFAULTS,
+};
 
 type Mode = 'files' | 'site';
 
 export default function App() {
   const [rows, setRows] = useState<Row[]>([]);
-  const [settings, setSettings] = usePersistent<Settings>('pare:settings', INITIAL);
+  const [settings, setSettings] = usePersistent<Settings>(
+    // Each task page remembers its own choices, so one never overrides another.
+    TASK ? 'pare:settings:' + TASK.slug : 'pare:settings',
+    INITIAL,
+  );
   const [folderSettings, setFolderSettings] = usePersistent<FolderSettings>(
     'pare:site-settings',
     FOLDER_DEFAULTS,
@@ -273,17 +285,19 @@ export default function App() {
           <section className="mx-auto max-w-3xl text-center">
             <p className="rise chip mx-auto" style={{ ['--i' as string]: 0 }}>
               <Icon name="sparkle" size={13} className="text-accent" />
-              Images · fonts · code · whole sites
+              {TASK ? 'Free · private · works offline' : 'Images · fonts · code · whole sites'}
             </p>
             <h1
               className="rise mt-5 font-[family-name:var(--font-display)] text-5xl leading-[1.02] font-bold tracking-[-0.035em] sm:text-7xl"
               style={{ ['--i' as string]: 0 }}
             >
-              Pare it <span className="gradient-text">down.</span>
+              {TASK ? TASK.heading[0] : 'Pare it'}{' '}
+              <span className="gradient-text">{TASK ? TASK.heading[1] : 'down.'}</span>
             </h1>
             <p className="rise mx-auto mt-5 max-w-xl text-lg text-muted" style={{ ['--i' as string]: 1 }}>
-              Shrink your images, fonts and code, and get the markup to use them. Files are read in
-              this tab and never sent anywhere — there is no server to send them to.
+              {TASK
+                ? TASK.lede
+                : 'Shrink your images, fonts and code, and get the markup to use them. Files are read in this tab and never sent anywhere — there is no server to send them to.'}
             </p>
           </section>
         )}
@@ -499,6 +513,18 @@ export default function App() {
       <footer className="border-t border-rule">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-muted sm:px-6">
           <Logo />
+          <nav aria-label="Tools" className="flex flex-wrap gap-x-4 gap-y-1">
+            {TASK && (
+              <a href="/" className="hover:text-ink">
+                Everything Pare does
+              </a>
+            )}
+            {TASKS.filter((t) => t !== TASK).map((t) => (
+              <a key={t.slug} href={taskPath(t)} className="hover:text-ink">
+                {t.name}
+              </a>
+            ))}
+          </nav>
           <p>
             No upload, no account, no server.
             {offline &&

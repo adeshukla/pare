@@ -36,7 +36,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
     await page.getByRole('button', { name: /^Optimize 3 files$/ }).click();
     await expect(page.getByLabel('Savings')).toBeVisible({ timeout: 120_000 });
-    await page.getByRole('button', { name: 'photo.jpg' }).click();
+    await page.getByRole('button', { name: 'photo.jpg', exact: true }).click();
     await page.getByRole('img', { name: 'Original' }).waitFor();
     expect(await violations(page), 'results').toEqual([]);
   });

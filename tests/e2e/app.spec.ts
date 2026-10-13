@@ -46,7 +46,7 @@ test('produces paste-ready markup with the formats it actually emitted', async (
   await page.getByRole('button', { name: /^Optimize/ }).click();
   await expect(page.getByLabel('Savings')).toBeVisible();
 
-  await page.getByRole('button', { name: 'photo.jpg' }).click();
+  await page.getByRole('button', { name: 'photo.jpg', exact: true }).click();
 
   const snippet = page.locator('pre');
   await expect(snippet).toContainText('<picture>');
@@ -67,7 +67,7 @@ test('turning a format off removes it from the output and the markup', async ({ 
   await page.getByRole('button', { name: /^Optimize/ }).click();
   await expect(page.getByLabel('Savings')).toBeVisible();
 
-  await page.getByRole('button', { name: 'photo.jpg' }).click();
+  await page.getByRole('button', { name: 'photo.jpg', exact: true }).click();
   const snippet = page.locator('pre');
   await expect(snippet).toContainText('type="image/webp"');
   await expect(snippet).not.toContainText('type="image/avif"');
@@ -84,7 +84,7 @@ test('a damaged file is skipped with a plain-language reason, and the run contin
   // Law: one bad file must never fail a run.
   await expect(page.getByText(/Could not read this file/)).toBeVisible();
   await expect(page.getByText(/1 file was left unchanged/)).toBeVisible();
-  await page.getByRole('button', { name: 'photo.jpg' }).click();
+  await page.getByRole('button', { name: 'photo.jpg', exact: true }).click();
   await expect(page.locator('pre')).toContainText('<picture>');
 });
 
@@ -123,7 +123,7 @@ test('copies the snippet to the clipboard', async ({ page, context, browserName 
   await page.getByRole('button', { name: /^Optimize/ }).click();
   await expect(page.getByLabel('Savings')).toBeVisible();
 
-  await page.getByRole('button', { name: 'photo.jpg' }).click();
+  await page.getByRole('button', { name: 'photo.jpg', exact: true }).click();
   await page.getByRole('button', { name: 'Copy', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible();
 
@@ -158,7 +158,7 @@ test('splits a font by script and writes the @font-face to go with it', async ({
   await page.getByRole('button', { name: /^Optimize/ }).click();
   await expect(page.getByLabel('Savings')).toBeVisible();
 
-  await page.getByRole('button', { name: 'plex-mono.woff2' }).click();
+  await page.getByRole('button', { name: 'plex-mono.woff2', exact: true }).click();
   const snippet = page.locator('pre');
 
   // The family comes from the font's own name table, not the filename.
@@ -187,7 +187,7 @@ test('keeps a whole font in one file when asked to', async ({ page }) => {
   await page.getByRole('button', { name: /^Optimize/ }).click();
   await expect(page.getByLabel('Savings')).toBeVisible();
 
-  await page.getByRole('button', { name: 'plex-mono.woff2' }).click();
+  await page.getByRole('button', { name: 'plex-mono.woff2', exact: true }).click();
   const snippet = page.locator('pre');
   await expect(snippet).toContainText('@font-face');
   // Nothing was split, so there is no range to declare.

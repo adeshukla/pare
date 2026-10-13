@@ -180,7 +180,7 @@ test('an expanded snippet scrolls in its own box, not the page', async ({ page: 
   await p.locator('input[type=file]').setInputFiles('tests/fixtures/photo.jpg');
   await p.getByRole('button', { name: /^Optimize 1 file$/ }).click();
   await expect(p.getByLabel('Savings')).toBeVisible();
-  await p.getByRole('button', { name: 'photo.jpg' }).click();
+  await p.getByRole('button', { name: 'photo.jpg', exact: true }).click();
 
   // A ThumbHash data URI is one very long line. It once stretched the results
   // table to 31,000px and put the Copy button off-screen.

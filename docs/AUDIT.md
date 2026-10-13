@@ -86,6 +86,10 @@ numbers.
 
 ## 4. What I would build next
 
+**Built:** target size (1, ADR-034), task pages (2, ADR-035) and phone results
+(3, ADR-036), on `features/target-tasks-mobile`. Next in line: a sample to try
+(4) and privacy shown (5).
+
 **Target size (1), task pages (2) and phone results (3)** together. They turn
 Pare from a developer tool into something anyone with a photo can use, and none
 of them needs a server.

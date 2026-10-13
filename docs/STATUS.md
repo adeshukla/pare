@@ -11,8 +11,8 @@ Updated: 2026-10-13
 | **Phase 4 — Folder mode** | ✅ complete (critical CSS not shipped — ADR-018) |
 | **Phase 5 — Verification** | ✅ complete (web-vitals not shipped — ADR-019) |
 | Live at | **https://pare.devstash.me** (also https://pare-3sm.pages.dev) — production from `098a02d` (2026-10-13), deployed with `wrangler pages deploy`. |
-| Initial JS | **103.9 KB gzipped** of a 150 KB budget |
-| Tests | 241 unit (Vitest) + 91 browser tests × Chromium, Firefox, WebKit on the dev server, plus the built site with production headers (offline in Chromium, a photo in all three engines) — all passing; 4 skips where an engine cannot synthesise a drop or paste |
+| Initial JS | **106.8 KB gzipped** of a 150 KB budget |
+| Tests | 246 unit (Vitest) + 94 browser tests × Chromium, Firefox, WebKit on the dev server, plus the built site with production headers (offline and the share target in Chromium, a photo in all three engines) — all passing; 4 skips where an engine cannot synthesise a drop or paste |
 
 > **Phases 2 through 5 were built ahead of the Phase 1 launch gate**, at the
 > project owner's direction. The gate that was **not** relaxed is the one that
@@ -204,7 +204,8 @@ use · ADR-024 save only into an empty folder · ADR-025 visual direction and
 motion language · ADR-026 HEIC and BMP · ADR-027 server templates and
 WordPress · ADR-028 minification levels, maps and browser ranges · ADR-029 zip input · ADR-030
 right-sized images · ADR-031 unused-CSS report · ADR-032 big images in parallel ·
-ADR-033 each codec fetched once
+ADR-033 each codec fetched once · ADR-034 under a size · ADR-035 task pages ·
+ADR-036 Save, Share and the share target
 
 ---
 
