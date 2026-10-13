@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { canPickDirectory, fromDataTransfer, fromFileList, MAX_FILES, pickDirectory } from '../lib/ingest';
 import { expandZips } from '../lib/unzip';
 import type { Asset } from '../lib/types';
@@ -39,7 +39,9 @@ export function DropZone({
     }
   }
 
-  useEffect(() => {
+  // Layout effect, not effect: attached before the drop zone is first painted,
+  // so there is no moment where the zone is visible and a drop goes nowhere.
+  useLayoutEffect(() => {
     // dragenter/dragleave fire for every child crossed; count them so the
     // overlay does not flicker off while the pointer moves over the page.
     let depth = 0;

@@ -70,6 +70,16 @@ export function runAll<I, O>(items: I[], task: (item: I, api: Remote<PipelineApi
 
 export const poolSize = SIZE;
 
+/**
+ * Start `count` workers loading the given encoders, without waiting. Called
+ * when files are dropped, so the downloads and compiles happen while the user
+ * is still looking at the settings rather than after they press the button.
+ */
+export function warmUp(kinds: string[], count: number): void {
+  const n = Math.max(0, Math.min(SIZE, count));
+  for (let i = 0; i < n; i++) void run((api) => api.warm(kinds)).catch(() => undefined);
+}
+
 export function terminate() {
   for (const s of slots) s.worker.terminate();
   slots.length = 0;

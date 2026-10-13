@@ -28,7 +28,7 @@ import {
   type FolderSettings,
 } from './lib/folder';
 import { isTextKind, newRow, optimizeAssets, summarise, type Row, type Settings } from './lib/optimize';
-import { poolSize } from './lib/pool';
+import { poolSize, warmUp } from './lib/pool';
 import { DEFAULTS, FONT_DEFAULTS, TEXT_DEFAULTS } from './lib/settings';
 import type { Asset } from './lib/types';
 import { verify, type VerifyReport } from './lib/verify';
@@ -114,6 +114,18 @@ export default function App() {
     setFolder(undefined);
     setVerification(undefined);
     setRows(assets.map(newRow));
+
+    // Start loading the image encoders now, while the settings are read.
+    const images = assets.filter((a) => a.kind === 'image');
+    if (images.length > 0) {
+      const kinds = ['avif', 'webp'];
+      if (images.some((a) => a.mime === 'image/jpeg' || a.mime === 'image/heic')) kinds.push('jpeg');
+      if (images.some((a) => a.mime === 'image/png' || a.mime === 'image/bmp' || a.mime === 'image/gif')) kinds.push('png');
+      // As many workers as the run will keep busy; a lone image is split by
+      // format and width (ADR-032), so it uses several.
+      warmUp(kinds, images.length < poolSize ? images.length * 9 : poolSize);
+    }
+
     // A drop containing pages is a site; that is what folder mode is for.
     // A WordPress theme has templates and no .html at all; it is still a site.
     setMode(assets.some((a) => a.kind === 'html' || a.kind === 'template') ? 'site' : 'files');

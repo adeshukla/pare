@@ -203,8 +203,9 @@ export async function optimizeFolder(
   // 0b. How large each image is ever shown (ADR-030). Only an image that
   //     nothing but plain <img src> points at qualifies: a stylesheet, a script
   //     or a template could show it larger somewhere Pare never rendered.
-  const targets = new Map<string, { width: number; shownAt: number }>();
-  if (folder.images && folder.rightSize && !templated && originalGraph.entries.length > 0) {
+  const targets = new Map<string, { width: number }>();
+  const measuring = (async () => {
+    if (!folder.images || !folder.rightSize || templated || originalGraph.entries.length === 0) return;
     onStage('Measuring how large each image is shown, at four screen widths…');
     const sizes = await measureImages(toVirtual(surviving), originalGraph.entries);
     for (const [path, m] of sizes) {
@@ -212,17 +213,29 @@ export async function optimizeFolder(
       const plainImg = refs.length > 0 && refs.every((r) => r.context === '<img src>' && r.resolvable);
       if (!plainImg || !originalGraph.renameable.has(path) || m.unsure) continue;
       // Worth it only when it saves real pixels: 10% of the width or more.
-      if (m.natural > m.needed * 1.1) targets.set(path, { width: m.needed, shownAt: m.needed });
+      if (m.natural > m.needed * 1.1) targets.set(path, { width: m.needed });
     }
     onStage('');
-  }
+  })();
 
   // 1. Optimize each file's bytes, in place and in its own format.
-  const optimized = await runAll(surviving, async (asset, api): Promise<FolderFile> => {
-    const file = await optimizeOne(asset, api);
-    onUpdate(asset.path, 1, '');
-    return file;
-  });
+  //
+  //    Everything that is not an image starts at once, while the pages are
+  //    still being measured; images, which need the measurements, follow.
+  //    Measuring renders in iframes on this thread and the codecs run in
+  //    workers, so the two overlap rather than compete.
+  const run1 = (list: Asset[]) =>
+    runAll(list, async (asset, api): Promise<FolderFile> => {
+      const file = await optimizeOne(asset, api);
+      onUpdate(asset.path, 1, '');
+      return file;
+    });
+  const isImage = (a: Asset) => a.kind === 'image' && folder.images;
+  const [others] = await Promise.all([run1(surviving.filter((a) => !isImage(a))), measuring]);
+  const images = await run1(surviving.filter(isImage));
+  // Back in the order the files came in, so the output lists them as dropped.
+  const byPath = new Map([...others, ...images].map((f) => [f.path, f]));
+  const optimized = surviving.map((a) => byPath.get(a.path)!);
 
   async function optimizeOne(
     asset: Asset,

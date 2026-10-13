@@ -237,6 +237,22 @@ function mintUrls(
  * Rendering and measuring
  * ------------------------------------------------------------------ */
 
+/**
+ * How many pages render at once. Each render is a hidden iframe whose time is
+ * mostly layout and image decode, which the browser spreads across cores; one
+ * lane per two cores keeps the tab responsive. Between 2 and 6.
+ */
+export const LANES = Math.max(2, Math.min(6, Math.floor((globalThis.navigator?.hardwareConcurrency || 4) / 2)));
+
+/** Run `task` over `items`, LANES at a time. */
+async function inLanes<T>(items: T[], task: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) await task(items[next++]!);
+  };
+  await Promise.all(Array.from({ length: Math.min(LANES, items.length) }, lane));
+}
+
 /** Elements beyond this are not measured; a page that big has made the point. */
 const MAX_ELEMENTS = 4000;
 
@@ -343,19 +359,42 @@ function fingerprint(doc: Document, page: string, viewport: number): PageSnapsho
   };
 }
 
-async function render(
+/** Wait for any image still loading - a resize can start new ones (srcset). */
+function imagesSettled(doc: Document): Promise<unknown> {
+  return Promise.all(
+    [...doc.images].map((img) =>
+      img.complete
+        ? Promise.resolve()
+        : new Promise((r) => {
+            img.addEventListener('load', r, { once: true });
+            img.addEventListener('error', r, { once: true });
+            setTimeout(r, 2000);
+          }),
+    ),
+  );
+}
+
+const nextFrame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+/**
+ * Load a page once and look at it at each width in turn, resizing the frame
+ * in between. A reload per width cost three or four full page loads; a resize
+ * re-runs media queries and layout, which is all a static page does with its
+ * width. Images a new width asks for (srcset, <picture>) are waited for.
+ */
+async function renderWidths(
   url: string,
-  viewport: number,
+  widths: number[],
   page: string,
-  inspect?: (doc: Document) => void,
-): Promise<PageSnapshot> {
+  inspect?: (doc: Document, width: number) => void,
+): Promise<PageSnapshot[]> {
   const frame = document.createElement('iframe');
   // allow-same-origin without allow-scripts: the document is readable, and no
   // script runs. Both sides are measured the same way, so the comparison is
   // deterministic - see the note at the top about what that does and does not
   // cover.
   frame.setAttribute('sandbox', 'allow-same-origin');
-  frame.style.cssText = `position:fixed;left:-10000px;top:0;width:${viewport}px;height:900px;border:0;visibility:hidden`;
+  frame.style.cssText = `position:fixed;left:-10000px;top:0;width:${widths[0]}px;height:900px;border:0;visibility:hidden`;
   document.body.appendChild(frame);
 
   try {
@@ -372,23 +411,32 @@ async function render(
 
     // Give the layout a frame to settle, and images a moment to decode.
     await new Promise((r) => setTimeout(r, 60));
-    await Promise.all(
-      [...doc.images].map((img) =>
-        img.complete
-          ? Promise.resolve()
-          : new Promise((r) => {
-              img.addEventListener('load', r, { once: true });
-              img.addEventListener('error', r, { once: true });
-              setTimeout(r, 2000);
-            }),
-      ),
-    );
+    await imagesSettled(doc);
 
-    inspect?.(doc);
-    return fingerprint(doc, page, viewport);
+    const out: PageSnapshot[] = [];
+    for (const [i, width] of widths.entries()) {
+      if (i > 0) {
+        frame.style.width = width + 'px';
+        doc.documentElement?.getBoundingClientRect();
+        await nextFrame();
+        await imagesSettled(doc);
+      }
+      inspect?.(doc, width);
+      out.push(fingerprint(doc, page, width));
+    }
+    return out;
   } finally {
     frame.remove();
   }
+}
+
+async function render(
+  url: string,
+  viewport: number,
+  page: string,
+  inspect?: (doc: Document) => void,
+): Promise<PageSnapshot> {
+  return (await renderWidths(url, [viewport], page, inspect && ((doc) => inspect(doc))))[0]!;
 }
 
 /* ------------------------------------------------------------------ *
@@ -507,41 +555,36 @@ export async function verify(
   const jobs = pages.flatMap((page) => VIEWPORTS.map((viewport) => ({ page, viewport })));
   let done = 0;
 
-  const check = async ({ page, viewport }: { page: string; viewport: number }) => {
+  const check = async (page: string) => {
     const a = beforeUrls.urls.get(page);
     const b = afterUrls.urls.get(page);
-    if (!a || !b) return;
     try {
+      if (!a || !b) return;
       const [was, now] = await Promise.all([
-        render(a, viewport, page),
-        render(b, viewport, page),
+        renderWidths(a, VIEWPORTS, page),
+        renderWidths(b, VIEWPORTS, page),
       ]);
-      findings.push(...compare(was, now));
+      was.forEach((snapshot, i) => findings.push(...compare(snapshot, now[i]!)));
     } catch {
-      findings.push({
-        page,
-        viewport,
-        severity: 'broken',
-        message: 'This page could not be previewed, so it could not be checked.',
-      });
+      for (const viewport of VIEWPORTS) {
+        findings.push({
+          page,
+          viewport,
+          severity: 'broken',
+          message: 'This page could not be previewed, so it could not be checked.',
+        });
+      }
     } finally {
-      done++;
+      done += VIEWPORTS.length;
       onProgress(done / jobs.length, `${done} of ${jobs.length}`);
     }
   };
 
-  // A few page-and-viewport pairs at once. Each is two hidden iframes; this is
-  // where a site with hundreds of pages spends its time, and rendering is mostly
-  // waiting on decode and layout rather than on this thread.
-  // ponytail: fixed width of 3, measure on a real theme before tuning.
-  const next = { i: 0 };
-  const lane = async () => {
-    while (next.i < jobs.length) await check(jobs[next.i++]!);
-  };
-
+  // Several page-and-viewport pairs at once (LANES). Each is two hidden
+  // iframes; this is where a site with hundreds of pages spends its time.
   try {
     onProgress(0, `0 of ${jobs.length}`);
-    await Promise.all([lane(), lane(), lane()]);
+    await inLanes(pages, check);
     // Lanes finish out of order; report in a stable order.
     findings.sort(
       (x, y) =>
@@ -621,12 +664,14 @@ export async function measureImages(
     out.set(path, m);
   };
 
+  const dprAt = new Map(MEASURE_AT.map((m) => [m.width, m.dpr]));
   try {
-    for (const page of pages) {
+    await inLanes(pages, async (page) => {
       const url = minted.urls.get(page);
-      if (!url) continue;
-      for (const { width, dpr } of MEASURE_AT) {
-        await render(url, width, page, (doc) => {
+      if (!url) return;
+      {
+        await renderWidths(url, [...dprAt.keys()], page, (doc, width) => {
+          const dpr = dprAt.get(width)!;
           for (const img of Array.from(doc.images)) {
             const path = pathOf.get(img.getAttribute('src') ?? '');
             if (!path) continue;
@@ -649,7 +694,7 @@ export async function measureImages(
           }
         });
       }
-    }
+    });
   } finally {
     minted.revoke();
   }
@@ -742,9 +787,9 @@ export async function findUnusedCss(files: VirtualFile[], pages: string[]): Prom
   };
 
   try {
-    for (const page of pages) {
+    await inLanes(pages, async (page) => {
       const url = minted.urls.get(page);
-      if (!url) continue;
+      if (!url) return;
       await render(url, 1280, page, (doc) => {
         for (const sheet of Array.from(doc.styleSheets)) {
           const source = sheet.href ? pathOf.get(sheet.href) : `${page} (<style>)`;
@@ -761,7 +806,7 @@ export async function findUnusedCss(files: VirtualFile[], pages: string[]): Prom
           walk(rules, source, doc);
         }
       });
-    }
+    });
   } finally {
     minted.revoke();
   }

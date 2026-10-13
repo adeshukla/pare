@@ -970,9 +970,13 @@ screenshot took about four minutes while the other workers sat idle.
 **Decision.** When a drop has fewer files than workers, each image is split into
 jobs per format and per width slice (largest widths dealt first), run across the
 pool and merged back. Full batches are left alone — they already fill the pool,
-and splitting would only repeat each decode. Above 4 megapixels AVIF encodes at
-speed 8 instead of 6. Measured: the same screenshot now takes 50 seconds with the
-threaded AVIF encoder production uses. The built-site preview sends production's
+and splitting would only repeat each decode. AVIF encodes at speed 7 rather than
+6: on a real photo it is 4% smaller and more than twice as fast (speed 8 was
+tried for large images and rejected: 47% larger). Encoders start loading the
+moment images are dropped. Whole-site runs render each page once and resize it
+through every width, several pages at a time, and minify text while images are
+being measured: the 40-page benchmark went from 27.6 s to 9.7 s. The 14 MP screenshot that
+took about four minutes now takes 63 seconds on the production build. The built-site preview sends production's
 isolation headers and a production smoke test runs it in all three engines; the
 dev server does not send them, because WebKit refuses its injected worker client
 under COEP and the threaded encoder then hangs - in development only.

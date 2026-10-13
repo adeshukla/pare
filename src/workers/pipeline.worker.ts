@@ -37,6 +37,7 @@ import {
 import {
   decode,
   decodeScaled,
+  warmEncoders,
   encodeAvif,
   encodeJpeg,
   encodePng,
@@ -773,6 +774,11 @@ const api = {
   optimizeFont,
   optimizeText,
   reencodeImage,
+
+  /** Load encoders now, so the run that follows does not wait for them. */
+  warm(kinds: string[]): Promise<void> {
+    return warmEncoders(kinds);
+  },
 
   /**
    * BMP to PNG, for whole-site mode (ADR-026). Lossless both ways, so the page

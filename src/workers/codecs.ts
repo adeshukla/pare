@@ -14,14 +14,33 @@ export const MIME_FOR_FORMAT: Record<Exclude<OutputFormat, 'fallback'>, string> 
   webp: 'image/webp',
 };
 
+/**
+ * Download and compile the encoders a run is about to need, ahead of time. Each
+ * is the same init the first encode would do, so a warmed worker just skips
+ * that wait. Failures are ignored: the encode will try again and report.
+ */
+export async function warmEncoders(kinds: string[]): Promise<void> {
+  const loads: Record<string, () => Promise<unknown>> = {
+    avif: async () => (await import('@jsquash/avif/encode')).init(),
+    webp: async () => (await import('@jsquash/webp/encode')).init(),
+    jpeg: async () => (await import('@jsquash/jpeg/encode')).init(),
+    png: async () => {
+      await (await import('@jsquash/png/encode')).init();
+      await (await import('@jsquash/oxipng/optimise')).init();
+    },
+  };
+  await Promise.all(kinds.map((k) => loads[k]?.().catch(() => undefined)));
+}
+
 export async function encodeAvif(data: ImageData, quality: number): Promise<Uint8Array> {
   const { default: encode } = await import('@jsquash/avif/encode');
-  // speed 6 is the point where encode time stops being the bottleneck for a
-  // batch drop without giving up a meaningful amount of compression. Above
-  // ~4 megapixels (a full-page screenshot, a camera original at full size) one
-  // encode at speed 6 runs for minutes, so those use speed 8: a few percent
-  // larger, several times faster. The report shows the real bytes either way.
-  const speed = data.width * data.height > 4_000_000 ? 8 : 6;
+  // speed 7, measured on a real iPhone photo (tests/fixtures/photo.heic, q50):
+  //   speed 6  175.5 KB   8.7 s Chromium  70.1 s Firefox
+  //   speed 7  168.1 KB   4.1 s           28.7 s
+  //   speed 8  257.2 KB   1.0 s            9.0 s
+  // 7 is both smaller and more than twice as fast as 6; 8 is fast but costs
+  // nearly half again in bytes, which is the one thing Pare is for.
+  const speed = 7;
   return new Uint8Array(await encode(data, { quality, speed }));
 }
 

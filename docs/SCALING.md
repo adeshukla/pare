@@ -60,8 +60,10 @@ signal, plus GitHub issues and stars.
 A 40-page site checked in 13–20 s in Chromium, 37–60 s in WebKit, ~90 s in
 Firefox. Nothing has yet been run on a real theme with hundreds of assets.
 A single 2560×5579 screenshot (14 MP) through every width and format: about
-4 minutes before ADR-032, 50 seconds after, by spreading one image across idle
-workers and encoding very large AVIFs at a faster setting.
+4 minutes before ADR-032, 63 seconds after on the production build, by spreading
+one image across idle workers and encoding AVIF at speed 7 (smaller *and* twice
+as fast as 6). The 40-page site with 60 images: 27.6 s to 9.7 s, by rendering
+each page once per check and several pages at a time.
 
 **The ceiling is memory, not speed.** A large WordPress `uploads/` folder can be
 several gigabytes, and today Pare keeps every input, every output and then the
