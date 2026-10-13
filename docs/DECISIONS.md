@@ -980,3 +980,24 @@ took about four minutes now takes 63 seconds on the production build. The built-
 isolation headers and a production smoke test runs it in all three engines; the
 dev server does not send them, because WebKit refuses its injected worker client
 under COEP and the threaded encoder then hangs - in development only.
+
+---
+
+## ADR-033 — Each codec is fetched by one worker first
+
+**Status:** accepted
+
+**Context.** Every pool worker loads its own copy of a codec. When several start
+at once they all request the same WASM file - 3.4 MB for AVIF, 14-16 MB for
+esbuild and Lightning CSS - and neither a service worker nor every browser's
+HTTP cache merges requests that are still in flight. An audit with the cache
+off measured ~45 MB of encoder traffic for a single photo.
+
+**Decision.** Jobs declare the codecs they need (`src/lib/needs.ts`). The first
+job to need a codec loads it on its own worker before running; every other job
+needing it waits only for that load - not for the first job to finish - and then
+loads from the cache. The drop-time warm-up (ADR-032) goes through the same gate.
+
+**Consequence.** One network download per codec on any browser. No measured
+slowdown locally (twenty photos: 7-8 s with and without), since the wait is only
+the download that had to happen anyway.

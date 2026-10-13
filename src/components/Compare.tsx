@@ -90,7 +90,11 @@ export function Compare({
         </label>
       </div>
 
-      <div className="max-h-[70vh] overflow-auto rounded-xl border border-rule bg-[repeating-conic-gradient(var(--color-raised)_0_25%,var(--color-surface)_0_50%)] bg-[length:16px_16px]">
+      <div
+        tabIndex={0}
+        aria-label="Comparison - scroll to see all of the image"
+        className="max-h-[70vh] overflow-auto rounded-xl border border-rule bg-[repeating-conic-gradient(var(--color-raised)_0_25%,var(--color-surface)_0_50%)] bg-[length:16px_16px]"
+      >
         <div
           className="relative cursor-ew-resize touch-none select-none"
           style={{ width: size.width }}

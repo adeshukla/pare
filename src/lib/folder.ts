@@ -2,6 +2,15 @@ import * as Comlink from 'comlink';
 import type { Remote } from 'comlink';
 import { buildGraph, type Graph } from './graph';
 import { contentHash, hashedPath } from './hash';
+import { needsFor } from './needs';
+
+const SAME_FORMAT_CODEC: Record<string, string> = {
+  'image/jpeg': 'jpeg',
+  'image/png': 'png',
+  'image/bmp': 'png',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+};
 import { isTextKind, type Settings } from './optimize';
 import { run, runAll } from './pool';
 import { refsByFile, rewriteReferences } from './rewrite';
@@ -224,12 +233,24 @@ export async function optimizeFolder(
   //    still being measured; images, which need the measurements, follow.
   //    Measuring renders in iframes on this thread and the codecs run in
   //    workers, so the two overlap rather than compete.
+  const siteNeeds = (asset: Asset): string[] => {
+    if (asset.kind === 'image') {
+      // Whole-site mode re-encodes in the image's own format (ADR-026: BMP to PNG).
+      const own = SAME_FORMAT_CODEC[asset.mime];
+      return own ? ['resize', own, ...(folder.modern ? ['avif', 'webp'] : [])] : [];
+    }
+    return needsFor(asset, settings);
+  };
   const run1 = (list: Asset[]) =>
-    runAll(list, async (asset, api): Promise<FolderFile> => {
-      const file = await optimizeOne(asset, api);
-      onUpdate(asset.path, 1, '');
-      return file;
-    });
+    runAll(
+      list,
+      async (asset, api): Promise<FolderFile> => {
+        const file = await optimizeOne(asset, api);
+        onUpdate(asset.path, 1, '');
+        return file;
+      },
+      siteNeeds,
+    );
   const isImage = (a: Asset) => a.kind === 'image' && folder.images;
   const [others] = await Promise.all([run1(surviving.filter((a) => !isImage(a))), measuring]);
   const images = await run1(surviving.filter(isImage));

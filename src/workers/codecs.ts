@@ -29,7 +29,20 @@ export async function warmEncoders(kinds: string[]): Promise<void> {
       await (await import('@jsquash/oxipng/optimise')).init();
     },
   };
-  await Promise.all(kinds.map((k) => loads[k]?.().catch(() => undefined)));
+  const rest: Record<string, () => Promise<unknown>> = {
+    resize: async () => import('@jsquash/resize'),
+    heic: async () => (await import('./heic')).warmHeic(),
+    harfbuzz: async () => (await import('./font-codecs')).warmFont('harfbuzz'),
+    woff2: async () => (await import('./font-codecs')).warmFont('woff2'),
+  };
+  const text = ['lightning', 'esbuild', 'svgo', 'html', 'terser', 'brotli'];
+  await Promise.all(
+    kinds.map((k) =>
+      (loads[k] ?? rest[k] ?? (text.includes(k) ? async () => (await import('./text-codecs')).warmText(k) : undefined))?.().catch(
+        () => undefined,
+      ),
+    ),
+  );
 }
 
 export async function encodeAvif(data: ImageData, quality: number): Promise<Uint8Array> {

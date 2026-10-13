@@ -266,6 +266,9 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-[1440px] px-4 pt-10 pb-16 sm:px-6 sm:pt-16">
+        {/* One top-level heading always, for screen readers and outlines; the
+            visible one is part of the landing page. */}
+        {started && <h1 className="sr-only">Pare — optimize your files</h1>}
         {!started && (
           <section className="mx-auto max-w-3xl text-center">
             <p className="rise chip mx-auto" style={{ ['--i' as string]: 0 }}>

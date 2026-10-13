@@ -23,6 +23,11 @@ type LibHeif = { HeifDecoder: new () => { decode(bytes: Uint8Array): HeifImage[]
 
 let ready: Promise<LibHeif> | undefined;
 
+/** Load libheif now, for warmCodecs. */
+export async function warmHeic(): Promise<void> {
+  await load();
+}
+
 function load(): Promise<LibHeif> {
   ready ??= (async () => {
     const { default: factory } = (await import('libheif-js/libheif-wasm/libheif-bundle.mjs')) as {

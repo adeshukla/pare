@@ -203,7 +203,8 @@ fenced · ADR-022 animated GIFs copied unchanged · ADR-023 offline after first
 use · ADR-024 save only into an empty folder · ADR-025 visual direction and
 motion language · ADR-026 HEIC and BMP · ADR-027 server templates and
 WordPress · ADR-028 minification levels, maps and browser ranges · ADR-029 zip input · ADR-030
-right-sized images · ADR-031 unused-CSS report · ADR-032 big images in parallel
+right-sized images · ADR-031 unused-CSS report · ADR-032 big images in parallel ·
+ADR-033 each codec fetched once
 
 ---
 

@@ -11,12 +11,12 @@
   --color-surface: #ffffff;    /* cards */
   --color-raised: #f4f4f5;     /* inputs, code, wells */
   --color-ink: #18181b;
-  --color-muted: #71717a;
+  --color-muted: #63636b;      /* 4.5:1 or better on every light surface */
   --color-rule: #e4e4e7;
   --color-accent: #4f46e5;
   --color-accent-2: #9333ea;
   --color-accent-ink: #ffffff;
-  --color-saved: #059669;      /* only ever used for a measured reduction */
+  --color-saved: #047857;      /* only ever used for a measured reduction; 5.5:1 on white */
   --color-warn: #b45309;       /* skipped / needs attention */
   --color-danger: #dc2626;
 
@@ -360,8 +360,10 @@
     display: inline-block;
     padding: 2px 9px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--color-saved) 14%, transparent);
-    color: var(--color-saved);
+    background: color-mix(in srgb, var(--color-saved) 12%, transparent);
+    /* Pulled towards the text colour so it stays readable on its own tint:
+       darker in light mode, lighter in dark mode. */
+    color: color-mix(in srgb, var(--color-saved) 78%, var(--color-ink));
     font-size: 12px;
     font-weight: 600;
     white-space: nowrap;

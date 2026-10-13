@@ -1,4 +1,5 @@
 import * as Comlink from 'comlink';
+import { needsFor } from './needs';
 import { poolSize, runAll } from './pool';
 import { defaultImgWidth } from './ladder';
 import { fontFaceSnippet } from './font-snippet';
@@ -356,7 +357,7 @@ export async function optimizeAssets(
 
     const inspection = await api.inspect(asset.bytes, asset.mime, asset.kind);
     return done({ inspection });
-  });
+  }, (job) => needsFor(job.asset, settings, job.format));
 
   return rows;
 }

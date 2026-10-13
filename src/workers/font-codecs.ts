@@ -30,6 +30,15 @@ const MEMORY_MODE_WRITABLE = 2;
 
 let hbPromise: Promise<HbExports> | undefined;
 
+/** Load the font tools now, for warmCodecs. */
+export async function warmFont(kind: string): Promise<void> {
+  if (kind === 'harfbuzz') await loadHarfbuzz();
+  else if (kind === 'woff2') {
+    await import('woff2-encoder');
+    await import('woff2-encoder/decompress');
+  }
+}
+
 function loadHarfbuzz(): Promise<HbExports> {
   hbPromise ??= (async () => {
     const { default: url } = await import('harfbuzzjs/dist/harfbuzz-subset.wasm?url');

@@ -54,9 +54,36 @@ function release(slot: Slot) {
   else slot.busy = false;
 }
 
-export async function run<T>(task: Task<T>): Promise<T> {
+/**
+ * Codecs (by name) that one worker has already fetched, or is fetching now.
+ *
+ * Every worker loads its own copy of a codec, and ten workers asking for the
+ * same 3-16 MB WASM file at the same moment can mean ten downloads - a
+ * service worker or an HTTP cache does not always merge requests that are
+ * still in flight. So the first task that needs a codec loads it on its own;
+ * every other task needing it waits only for that load - not for the first
+ * task to finish - and then finds it in the cache.
+ */
+const fetched = new Map<string, Promise<void>>();
+
+export async function run<T>(task: Task<T>, needs: string[] = []): Promise<T> {
+  await Promise.all(needs.map((n) => fetched.get(n)).filter(Boolean));
+  const fresh = needs.filter((n) => !fetched.has(n));
+  let loaded: () => void = () => {};
+  if (fresh.length > 0) {
+    const p = new Promise<void>((r) => (loaded = r));
+    for (const n of fresh) fetched.set(n, p);
+  }
+
   const slot = await acquire();
   try {
+    if (fresh.length > 0) {
+      try {
+        await slot.api.warm(fresh);
+      } finally {
+        loaded();
+      }
+    }
     return await task(slot.api);
   } finally {
     release(slot);
@@ -64,8 +91,12 @@ export async function run<T>(task: Task<T>): Promise<T> {
 }
 
 /** Run tasks across the pool, resolving in input order. */
-export function runAll<I, O>(items: I[], task: (item: I, api: Remote<PipelineApi>) => Promise<O>) {
-  return Promise.all(items.map((item) => run((api) => task(item, api))));
+export function runAll<I, O>(
+  items: I[],
+  task: (item: I, api: Remote<PipelineApi>) => Promise<O>,
+  needs: (item: I) => string[] = () => [],
+) {
+  return Promise.all(items.map((item) => run((api) => task(item, api), needs(item))));
 }
 
 export const poolSize = SIZE;
@@ -77,7 +108,8 @@ export const poolSize = SIZE;
  */
 export function warmUp(kinds: string[], count: number): void {
   const n = Math.max(0, Math.min(SIZE, count));
-  for (let i = 0; i < n; i++) void run((api) => api.warm(kinds)).catch(() => undefined);
+  // The first run fetches; the rest wait for it and load from the cache.
+  for (let i = 0; i < n; i++) void run((api) => api.warm(kinds), kinds).catch(() => undefined);
 }
 
 export function terminate() {

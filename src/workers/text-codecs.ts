@@ -23,6 +23,16 @@ import type * as LightningCss from 'lightningcss-wasm';
 
 let lightningReady: Promise<typeof LightningCss> | undefined;
 
+/** Load one text tool now, for warmCodecs. */
+export async function warmText(kind: string): Promise<void> {
+  if (kind === 'lightning') await loadLightning();
+  else if (kind === 'esbuild') await loadEsbuild();
+  else if (kind === 'svgo') await import('svgo/browser');
+  else if (kind === 'html') await import('html-minifier-terser');
+  else if (kind === 'terser') await import('terser');
+  else if (kind === 'brotli') await (await import('brotli-wasm')).default;
+}
+
 async function loadLightning() {
   lightningReady ??= (async () => {
     const mod = await import('lightningcss-wasm');

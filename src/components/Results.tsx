@@ -76,7 +76,8 @@ function Snippet({ code }: { code: string }) {
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed">
+      {/* Focusable, so a keyboard can scroll a long line into view. */}
+      <pre tabIndex={0} aria-label="Snippet" className="overflow-x-auto p-4 font-mono text-xs leading-relaxed">
         <code>{highlight(code)}</code>
       </pre>
     </div>

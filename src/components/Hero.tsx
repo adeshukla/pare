@@ -126,7 +126,10 @@ function SiteArt() {
 
 export function Features() {
   return (
-    <section aria-label="What Pare does" className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <section aria-labelledby="what-pare-does" className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <h2 id="what-pare-does" className="sr-only">
+        What Pare does
+      </h2>
       <Tile icon="image" title="Images" art={<ImageArt />} index={0}>
         AVIF, WebP and an optimized original at every width you choose — plus the{' '}
         <code className="font-mono text-xs">&lt;picture&gt;</code> tag to paste.

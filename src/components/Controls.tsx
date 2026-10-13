@@ -184,10 +184,11 @@ function SizePreview({
 
   const settled = shown?.for === wanted;
   return (
-    <span
-      className={`chip tnum transition-opacity ${settled ? 'opacity-100' : 'animate-pulse opacity-70'}`}
-      aria-live="polite"
-    >
+    <span className="chip tnum" aria-live="polite">
+      {/* The dot pulses, not the text: faded text would be too faint to read. */}
+      {!settled && !disabled && (
+        <i aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-accent" />
+      )}
       {settled ? shown.text : disabled ? '' : 'measuring…'}
     </span>
   );
