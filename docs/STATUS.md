@@ -11,8 +11,8 @@ Updated: 2026-10-13
 | **Phase 4 — Folder mode** | ✅ complete (critical CSS not shipped — ADR-018) |
 | **Phase 5 — Verification** | ✅ complete (web-vitals not shipped — ADR-019) |
 | Live at | **https://pare-3sm.pages.dev** — deployed 2026-10-13 from `9beb4c4` with `wrangler pages deploy`. `pare.devstash.me` not yet attached. |
-| Initial JS | **97.8 KB gzipped** of a 150 KB budget |
-| Tests | 228 unit (Vitest) + 87 browser tests × Chromium, Firefox, WebKit, plus 1 offline test against the built site — all passing; 4 skips where an engine cannot synthesise a drop or paste |
+| Initial JS | **103.9 KB gzipped** of a 150 KB budget |
+| Tests | 241 unit (Vitest) + 91 browser tests × Chromium, Firefox, WebKit on the dev server, plus the built site with production headers (offline in Chromium, a photo in all three engines) — all passing; 4 skips where an engine cannot synthesise a drop or paste |
 
 > **Phases 2 through 5 were built ahead of the Phase 1 launch gate**, at the
 > project owner's direction. The gate that was **not** relaxed is the one that
@@ -87,6 +87,12 @@ Source maps holding the original code are written in files mode. CSS and
 JavaScript output follow the chosen browser range (Latest, Since 2021 by default,
 Since 2017), and Since 2017 adds WOFF fonts (ADR-028). Images have Smallest /
 Balanced / Crisp quality presets.
+
+**Also:** a dropped .zip is opened in place (ADR-029); whole-site mode scales
+images down to the size they are shown at, measured at four screen widths
+(ADR-030); an opt-in report lists CSS that matched nothing, without removing
+any (ADR-031); files mode can make one size — fitted, or cropped to fill — in a
+single format; and one large image is spread across idle workers (ADR-032).
 
 **Zips** are built in chunks, with already-compressed files stored rather than
 deflated again. Hashed assets are served `immutable` for a year. See
@@ -196,7 +202,8 @@ Core Web Vitals · ADR-020 no CSSO · ADR-021 site-mode `<picture>`, opt-in and
 fenced · ADR-022 animated GIFs copied unchanged · ADR-023 offline after first
 use · ADR-024 save only into an empty folder · ADR-025 visual direction and
 motion language · ADR-026 HEIC and BMP · ADR-027 server templates and
-WordPress · ADR-028 minification levels, maps and browser ranges
+WordPress · ADR-028 minification levels, maps and browser ranges · ADR-029 zip input · ADR-030
+right-sized images · ADR-031 unused-CSS report · ADR-032 big images in parallel
 
 ---
 

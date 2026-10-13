@@ -1,9 +1,9 @@
 import * as Comlink from 'comlink';
-import { runAll } from './pool';
+import { poolSize, runAll } from './pool';
 import { defaultImgWidth } from './ladder';
 import { fontFaceSnippet } from './font-snippet';
 import { pictureSnippet } from './snippet';
-import type { FontSettings, ImageSettings, TextSettings } from './settings';
+import type { FontSettings, ImageSettings, OutputFormat, TextSettings } from './settings';
 import type { Asset, FontOutcome, ImageOutcome, TextKind, TextOutcome, Variant } from './types';
 import type { Inspection } from '../workers/pipeline.worker';
 
@@ -245,31 +245,97 @@ export async function optimizeAssets(
     used = [...new Set(found.flat())];
   }
 
-  const indexed = assets.map((asset, index) => ({ asset, index }));
+  // When there are fewer files than workers, an image becomes one job per
+  // output format, so a single large photo keeps
+  // up to three workers busy instead of one (AVIF at 2560px alone can take a
+  // minute) - and a full batch, which already fills the pool, is left alone,
+  // since splitting it would only repeat each decode and resize. Jobs
+  // are split here, before the pool, never inside a pool task - a task that
+  // waited on more pool slots could deadlock a full pool.
+  const enabled = (['avif', 'webp', 'fallback'] as const).filter((f) => settings.image.formats[f]);
+  type Job = {
+    asset: Asset;
+    index: number;
+    format?: OutputFormat;
+    first?: boolean;
+    slice?: { index: number; count: number };
+  };
+  const images = assets.filter((a) => a.kind === 'image').length;
+  const split = enabled.length > 1 && assets.length < poolSize;
+  // Width slices per format: as many as idle workers allow, at most three
+  // (a ladder has five or six widths).
+  const slices = split ? Math.max(1, Math.min(3, Math.floor(poolSize / Math.max(1, images * enabled.length)))) : 1;
+  const jobs: Job[] = assets.flatMap((asset, index): Job[] =>
+    asset.kind === 'image' && split
+      ? enabled.flatMap((format, f) =>
+          Array.from({ length: slices }, (_, s) => ({
+            asset,
+            index,
+            format,
+            first: f === 0 && s === 0,
+            slice: slices > 1 ? { index: s, count: slices } : undefined,
+          })),
+        )
+      : [{ asset, index }],
+  );
 
-  return runAll(indexed, async ({ asset, index }, api): Promise<Row> => {
-    onUpdate(index, { state: 'running', progress: 0, label: 'Starting' });
+  const parts = new Map<number, { progress: number[]; outcomes: ImageOutcome[]; expected: number }>();
+  for (const job of jobs) {
+    if (job.format === undefined && job.slice === undefined) continue;
+    const entry = parts.get(job.index) ?? { progress: [], outcomes: [], expected: 0 };
+    entry.expected++;
+    entry.progress.push(0);
+    parts.set(job.index, entry);
+  }
+
+  const rows: Row[] = assets.map(newRow);
+
+  const seen = new Map<number, number>();
+  const slotOf = (index: number) => {
+    const n = seen.get(index) ?? 0;
+    seen.set(index, n + 1);
+    return n;
+  };
+
+  await runAll(jobs, async ({ asset, index, format, first, slice }, api): Promise<void> => {
+    const part = parts.get(index);
+    const slot = part ? slotOf(index) : 0;
+    if (!part || slot === 0) onUpdate(index, { state: 'running', progress: 0, label: 'Starting' });
 
     // Comlink cannot structured-clone a function; it has to be proxied.
-    const report = Comlink.proxy((progress: number, label: string) =>
-      onUpdate(index, { progress, label }),
-    );
+    const report = Comlink.proxy((progress: number, label: string) => {
+      if (!part) return onUpdate(index, { progress, label });
+      part.progress[slot] = progress;
+      onUpdate(index, {
+        state: 'running',
+        progress: part.progress.reduce((n, p) => n + p, 0) / part.expected,
+        label,
+      });
+    });
 
-    const done = (patch: Partial<Row>): Row => {
+    const done = (patch: Partial<Row>) => {
       const row: Row = { ...newRow(asset), state: 'done', progress: 1, label: '', ...patch };
+      rows[index] = row;
       onUpdate(index, row);
-      return row;
     };
 
     if (asset.kind === 'image') {
-      const outcome = await api.optimizeImage(
-        asset.path,
-        asset.mime,
-        asset.bytes,
-        settings.image,
-        report,
-      );
-      return done({ outcome, snippet: imageSnippet(outcome, settings.image) });
+      const single = format
+        ? {
+            ...settings.image,
+            formats: { avif: format === 'avif', webp: format === 'webp', fallback: format === 'fallback' },
+            // One placeholder per image, not one per format.
+            thumbhash: settings.image.thumbhash && first === true,
+            slice,
+          }
+        : settings.image;
+      const outcome = await api.optimizeImage(asset.path, asset.mime, asset.bytes, single, report);
+      if (!part) return done({ outcome, snippet: imageSnippet(outcome, settings.image) });
+
+      part.outcomes.push(outcome);
+      if (part.outcomes.length < part.expected) return;
+      const merged = mergeOutcomes(part.outcomes);
+      return done({ outcome: merged, snippet: imageSnippet(merged, settings.image) });
     }
 
     if (asset.kind === 'font') {
@@ -291,4 +357,35 @@ export async function optimizeAssets(
     const inspection = await api.inspect(asset.bytes, asset.mime, asset.kind);
     return done({ inspection });
   });
+
+  return rows;
+}
+
+const FORMAT_ORDER: OutputFormat[] = ['avif', 'webp', 'fallback'];
+
+/**
+ * One image's per-format results, put back together as if one worker had made
+ * them all. Skipped only if every format was skipped; otherwise a format's own
+ * failure is already a warning on its outcome.
+ */
+export function mergeOutcomes(outcomes: ImageOutcome[]): ImageOutcome {
+  // An empty width slice contributed nothing, and says nothing either.
+  const real = outcomes.filter((o) => !o.empty);
+  outcomes = real.length > 0 ? real : outcomes;
+  const made = outcomes.filter((o) => !o.skipped);
+  const base = made[0] ?? outcomes[0]!;
+  if (made.length === 0) {
+    return { ...base, warnings: [...new Set(outcomes.flatMap((o) => o.warnings))] };
+  }
+  const variants = made
+    .flatMap((o) => o.variants)
+    .sort((x, y) => x.width - y.width || FORMAT_ORDER.indexOf(x.format) - FORMAT_ORDER.indexOf(y.format));
+  return {
+    ...base,
+    variants,
+    placeholder: outcomes.find((o) => o.placeholder)?.placeholder,
+    metadataRemoved: Math.max(...outcomes.map((o) => o.metadataRemoved)),
+    warnings: [...new Set(outcomes.flatMap((o) => o.warnings))],
+    skipped: undefined,
+  };
 }

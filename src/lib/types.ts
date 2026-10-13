@@ -126,6 +126,8 @@ export type ImageOutcome = {
   metadataRemoved: number;
   warnings: string[];
   skipped?: string;
+  /** A width slice that had no widths to encode: contributes nothing when merged. */
+  empty?: boolean;
 };
 
 /* ------------------------------------------------------------------ *

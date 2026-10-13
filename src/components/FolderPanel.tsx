@@ -38,6 +38,13 @@ export function FolderControls({
           onChange={(on) => patch({ images: on })}
         />
         <Toggle
+          label="Resize images to the size they are shown at"
+          hint="Each page is rendered at phone, tablet, laptop and desktop widths, and each image is kept at its largest size there - three times that on phones, twice elsewhere, so it stays sharp on high-resolution screens. Never enlarged. An image also used from CSS, a script or a template keeps its size."
+          checked={settings.rightSize}
+          disabled={!settings.images}
+          onChange={(on) => patch({ rightSize: on })}
+        />
+        <Toggle
           label="Also offer AVIF and WebP to browsers that read them"
           name="Also offer AVIF and WebP to browsers that read them"
           hint={
@@ -312,8 +319,12 @@ export function SiteFiles({ rows, result }: { rows: Row[]; result?: FolderResult
               const cut = file.siblingOf ? 0 : reduction(file.bytesBefore, after);
               const detail = file.siblingOf
                 ? 'new copy of ' + file.siblingOf
-                : (file.skipped ??
-                  (file.outputPath !== file.path ? 'renamed ' + file.outputPath : ''));
+                : [
+                    file.resized ? `scaled from ${file.resized.from} to ${file.resized.to}px wide` : '',
+                    file.skipped ?? (file.outputPath !== file.path ? 'renamed ' + file.outputPath : ''),
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
               return (
                 <tr key={file.outputPath} className="border-b border-rule last:border-0">
                   <td className="py-2.5 pr-3 pl-3">
@@ -369,7 +380,10 @@ export function FolderSummary({ result }: { result: FolderResult }) {
         <SavingBars before={before} after={after} />
         <p className="mt-4 max-w-prose text-sm text-muted">
           {result.files.length} files &middot; {result.renamed.size} fingerprinted &middot;{' '}
-          {result.rewritten} address{result.rewritten === 1 ? '' : 'es'} updated.
+          {result.rewritten} address{result.rewritten === 1 ? '' : 'es'} updated
+          {result.resized > 0 &&
+            ` · ${result.resized} image${result.resized === 1 ? '' : 's'} scaled down to the size ${result.resized === 1 ? 'it is' : 'they are'} shown at`}
+          .
           {result.pictures > 0 ? (
             <>
               {' '}

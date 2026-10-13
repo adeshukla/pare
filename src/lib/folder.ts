@@ -6,7 +6,7 @@ import { isTextKind, type Settings } from './optimize';
 import { run, runAll } from './pool';
 import { refsByFile, rewriteReferences } from './rewrite';
 import type { Asset, TextKind, Warning } from './types';
-import type { VirtualFile } from './verify';
+import { measureImages, type VirtualFile } from './verify';
 import {
   imageSensitiveSelector,
   scriptsBlockWrapping,
@@ -73,6 +73,12 @@ export type FolderSettings = {
    * addresses. Fenced in picture-wrap.ts and checked by the verifier. ADR-021.
    */
   modern: boolean;
+  /**
+   * Scale each image down to the largest size any page shows it at, times the
+   * screen's pixel ratio. Never enlarges; only images that nothing but plain
+   * <img> tags point at. ADR-030.
+   */
+  rightSize: boolean;
 };
 
 export const FOLDER_DEFAULTS: FolderSettings = {
@@ -82,6 +88,7 @@ export const FOLDER_DEFAULTS: FolderSettings = {
   bundle: false,
   fonts: false,
   modern: false,
+  rightSize: true,
 };
 
 export type FolderFile = {
@@ -108,6 +115,8 @@ export type FolderFile = {
    * and undone otherwise.
    */
   converted?: { original: Uint8Array; ext: string };
+  /** Scaled down to the size it is shown at (ADR-030). */
+  resized?: { from: number; to: number };
 };
 
 export type FolderResult = {
@@ -124,6 +133,8 @@ export type FolderResult = {
   pages: string[];
   /** How many `<img>` elements were wrapped in a `<picture>`. */
   pictures: number;
+  /** How many images were scaled down to the size they are shown at. */
+  resized: number;
 };
 
 const decoder = new TextDecoder('utf-8', { fatal: false });
@@ -154,6 +165,7 @@ export async function optimizeFolder(
   settings: Settings,
   folder: FolderSettings,
   onUpdate: (path: string, ratio: number, label: string) => void = () => {},
+  onStage: (text: string) => void = () => {},
 ): Promise<FolderResult> {
   const warnings: Warning[] = [];
 
@@ -178,6 +190,31 @@ export async function optimizeFolder(
     const texts = surviving.filter((a) => isTextKind(a.kind) || a.kind === 'template');
     const found = await runAll(texts, (asset, api) => api.scanCodepoints(asset.bytes));
     used = [...new Set(found.flat())];
+  }
+
+  // The graph of the ORIGINAL text decides permissions: renaming (Law 3), and
+  // now also which images may be right-sized. Built before anything changes.
+  const originalGraph = buildGraph(surviving);
+  const audit = await run((api) => api.auditGraph(surviving, originalGraph));
+  for (const path of audit.removed) originalGraph.renameable.delete(path);
+  warnings.push(...originalGraph.warnings, ...audit.warnings);
+  const templated = surviving.some((a) => a.kind === 'template');
+
+  // 0b. How large each image is ever shown (ADR-030). Only an image that
+  //     nothing but plain <img src> points at qualifies: a stylesheet, a script
+  //     or a template could show it larger somewhere Pare never rendered.
+  const targets = new Map<string, { width: number; shownAt: number }>();
+  if (folder.images && folder.rightSize && !templated && originalGraph.entries.length > 0) {
+    onStage('Measuring how large each image is shown, at four screen widths…');
+    const sizes = await measureImages(toVirtual(surviving), originalGraph.entries);
+    for (const [path, m] of sizes) {
+      const refs = originalGraph.byTarget.get(path) ?? [];
+      const plainImg = refs.length > 0 && refs.every((r) => r.context === '<img src>' && r.resolvable);
+      if (!plainImg || !originalGraph.renameable.has(path) || m.unsure) continue;
+      // Worth it only when it saves real pixels: 10% of the width or more.
+      if (m.natural > m.needed * 1.1) targets.set(path, { width: m.needed, shownAt: m.needed });
+    }
+    onStage('');
   }
 
   // 1. Optimize each file's bytes, in place and in its own format.
@@ -230,10 +267,11 @@ export async function optimizeFolder(
           ? { avif: settings.image.quality.avif, webp: settings.image.quality.webp }
           : undefined,
         report,
+        targets.get(asset.path)?.width,
       );
       for (const w of result.warnings) warnings.push({ path: asset.path, message: w });
       if (result.avif || result.webp) copies.set(asset.path, { avif: result.avif, webp: result.webp });
-      return { ...base, bytes: result.bytes, skipped: result.skipped };
+      return { ...base, bytes: result.bytes, skipped: result.skipped, resized: result.resized };
     }
 
     if (asset.kind === 'font' && folder.fonts) {
@@ -281,12 +319,8 @@ export async function optimizeFolder(
     return base;
   }
 
-  // 2. Build the graph from the ORIGINAL text, then re-discover references in
-  //    whatever the optimizers produced, since minifying moves every offset.
-  const originalGraph = buildGraph(surviving);
-  const audit = await run((api) => api.auditGraph(surviving, originalGraph));
-  for (const path of audit.removed) originalGraph.renameable.delete(path);
-  warnings.push(...originalGraph.warnings, ...audit.warnings);
+  // 2. Re-discover references in whatever the optimizers produced, since
+  //    minifying moves every offset. (The original graph was built up front.)
 
   // 2b. Offer AVIF and WebP through <picture>, where that is safe. ADR-021.
   const modern = folder.modern
@@ -317,7 +351,6 @@ export async function optimizeFolder(
   // ADR-027: a folder with server templates (a WordPress theme, say) is never
   // renamed. A child theme, a plugin or the database can name these files from
   // outside the folder, and WordPress adds ?ver= for caching anyway.
-  const templated = surviving.some((a) => a.kind === 'template');
   if (templated && folder.hash) {
     warnings.push({
       path: surviving.find((a) => a.kind === 'template')!.path,
@@ -392,6 +425,7 @@ export async function optimizeFolder(
     rewritten,
     pages: graph.entries,
     pictures: modern.pictures,
+    resized: files.filter((f) => f.resized).length,
   };
 }
 
@@ -610,6 +644,16 @@ async function bundleModules(
   }
 
   return { replaced, absorbed, bundled };
+}
+
+/** Assets as the verifier and the measurer render them. */
+export function toVirtual(assets: Asset[]): VirtualFile[] {
+  return assets.map((asset) => ({
+    path: asset.path,
+    bytes: asset.bytes,
+    mime: MIME_BY_KIND[asset.kind] ?? asset.mime,
+    kind: asset.kind,
+  }));
 }
 
 /**

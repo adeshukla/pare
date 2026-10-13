@@ -40,15 +40,26 @@ export default defineConfig({
    * support differs from Chrome's. Those are precisely the branches under test.
    */
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /offline/ },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, testIgnore: /offline/ },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testIgnore: /offline/ },
-    // The service worker only registers in a production build (ADR-023), so this
-    // one runs against the built site rather than the dev server.
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /offline|production/ },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, testIgnore: /offline|production/ },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testIgnore: /offline|production/ },
+    // Against the built site with production's headers. The service worker
+    // only registers in a production build (ADR-023), and only there do the
+    // isolation headers switch on the threaded AVIF encoder (ADR-032).
     {
       name: 'offline',
-      testMatch: /offline\.spec\.ts/,
+      testMatch: /(offline|production)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4173' },
+    },
+    {
+      name: 'production-firefox',
+      testMatch: /production\.spec\.ts/,
+      use: { ...devices['Desktop Firefox'], baseURL: 'http://localhost:4173' },
+    },
+    {
+      name: 'production-webkit',
+      testMatch: /production\.spec\.ts/,
+      use: { ...devices['Desktop Safari'], baseURL: 'http://localhost:4173' },
     },
   ],
 

@@ -12,7 +12,7 @@ import type { Asset } from './types';
  */
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'vendor']);
-const MAX_FILES = 5000;
+export const MAX_FILES = 5000;
 
 export const canPickDirectory = () => 'showDirectoryPicker' in window;
 

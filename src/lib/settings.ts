@@ -20,6 +20,23 @@ export type ImageSettings = {
   sizes: string;
   /** Emit `loading="lazy" decoding="async"` on the `<img>`. */
   lazy: boolean;
+  /**
+   * Internal, never shown or saved: this job encodes only every `count`th
+   * width, starting at `index`, largest first. Lets one big image spread
+   * across idle workers. See optimizeAssets.
+   */
+  slice?: { index: number; count: number };
+  /**
+   * 'responsive' makes every width on the ladder; 'single' makes one size,
+   * for "I just want this 800px wide" or a square thumbnail.
+   */
+  output: 'responsive' | 'single';
+  single: {
+    width: number | null;
+    height: number | null;
+    /** contain: fit inside the box. cover: fill it exactly, cropping the centre. */
+    fit: 'contain' | 'cover';
+  };
 };
 
 export const DEFAULT_WIDTHS = [400, 800, 1200, 1600, 2400];
@@ -34,6 +51,8 @@ export const DEFAULTS: ImageSettings = {
   thumbhash: true,
   sizes: '(max-width: 768px) 100vw, 50vw',
   lazy: true,
+  output: 'responsive',
+  single: { width: 1200, height: null, fit: 'contain' },
 };
 
 export const FORMAT_LABEL: Record<OutputFormat, string> = {

@@ -883,3 +883,96 @@ ignored the "browsers to support" choice entirely.
 range is sometimes a little larger (Lightning CSS adds fallbacks such as a full
 `system-ui` font stack); when minifying would make a file bigger, Pare keeps the
 original, as it always has.
+
+---
+
+## ADR-029 — A .zip in a drop is opened in place
+
+**Status:** accepted
+
+**Context.** WordPress themes and plugins ship as zips, and so do most site
+exports. A dropped zip used to be copied through as an opaque file.
+
+**Decision.** Every `.zip` in a drop (checked by its `PK\x03\x04` signature, not
+just its name) is opened with fflate and its contents take its place, at the
+path the zip sat at. Then classification, the mode choice and everything else
+proceed as for a dropped folder.
+
+**Guards.** Limits are read from the archive's own directory before anything is
+inflated: at most the folder file cap (5,000) and 2 GB unpacked, otherwise the
+zip is refused and kept as a file. Entry paths that climb out (`../`) are
+dropped; `__MACOSX`, `.DS_Store`, `node_modules` and version-control folders are
+skipped; a zip inside a zip is left shut. An encrypted or damaged zip is kept as a
+file. Every outcome is reported in one plain line.
+
+---
+
+## ADR-030 — Whole-site mode scales images to the size they are shown at
+
+**Status:** accepted
+
+**Context.** A 4000px photo shown at 800px is the most common waste on real
+sites, and whole-site mode only re-compressed images at their own size.
+
+**Decision.** On by default, with its own switch. Before optimizing, every page
+is rendered at 360, 768, 1280 and 1920px; each `<img>`'s displayed width is
+recorded and multiplied by that screen's usual pixel ratio (3 for 360, 2 for the
+rest). An image is scaled down to the largest of those, never up, and only when
+that saves at least 10% of its width.
+
+**Only where nothing else can see it.** An image qualifies only if every
+reference to it is a plain `<img src>` that resolves, and Law 3 would let it be
+renamed — so nothing a stylesheet (a background), a script, a template or an
+inline style uses, and nothing inside `<picture>` or with a `srcset`, where the
+browser chooses the size. A folder with templates is never right-sized. Images
+that do not load while being measured are left alone; lazy images are loaded
+eagerly in the measuring copy only.
+
+**Why it is safe to ship.** Scaling down changes an image's intrinsic size, which
+only affects layout when the page relies on that size. If it does, the image was
+displayed at its natural width, so the measured need is at least that and no
+resize happens. Either way the verifier then compares every element's box before
+and after, as for every other change.
+
+**Honest cost.** On a screen wider than 1920 CSS pixels at 2x, a full-width image
+can be softer than the original. The switch says what it does.
+
+---
+
+## ADR-031 — Unused CSS is reported, never removed
+
+**Status:** accepted. Does not supersede ADR-002; it is the safe half of it.
+
+**Context.** People ask for unused CSS to be removed. ADR-002 explains why Pare
+cannot do that safely: classes come from databases, scripts, other pages and
+states no static render reaches.
+
+**Decision.** After a whole-site run, an opt-in button renders every page and
+lists each rule in the site's own stylesheets and `<style>` blocks that matched
+nothing anywhere — grouped by file, with sizes, and copyable. States and parts
+(`:hover`, `::before`) are stripped before matching, which can only make a rule
+look *more* used; nested `&` rules count as used. The panel says plainly what the
+list cannot know. Nothing is edited: the download is byte-identical with or
+without the report.
+
+**Why a report is worth having.** The site's author knows whether `.cart-error`
+is dead. Pare can show them where to look, at no risk to anyone.
+
+---
+
+## ADR-032 — A single large image is spread across idle workers
+
+**Status:** accepted
+
+**Context.** One image used one worker for every width and format; a 14-megapixel
+screenshot took about four minutes while the other workers sat idle.
+
+**Decision.** When a drop has fewer files than workers, each image is split into
+jobs per format and per width slice (largest widths dealt first), run across the
+pool and merged back. Full batches are left alone — they already fill the pool,
+and splitting would only repeat each decode. Above 4 megapixels AVIF encodes at
+speed 8 instead of 6. Measured: the same screenshot now takes 50 seconds with the
+threaded AVIF encoder production uses. The built-site preview sends production's
+isolation headers and a production smoke test runs it in all three engines; the
+dev server does not send them, because WebKit refuses its injected worker client
+under COEP and the threaded encoder then hangs - in development only.

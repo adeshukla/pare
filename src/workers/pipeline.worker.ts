@@ -108,6 +108,50 @@ async function encodeOne(
   return mime === 'image/png' ? encodePng(data) : encodeJpeg(data, quality);
 }
 
+/** Copy a rectangle out of an image. */
+function crop(data: ImageData, x: number, y: number, width: number, height: number): ImageData {
+  const out = new Uint8ClampedArray(width * height * 4);
+  for (let row = 0; row < height; row++) {
+    const from = ((y + row) * data.width + x) * 4;
+    out.set(data.data.subarray(from, from + width * 4), row * width * 4);
+  }
+  return new ImageData(out, width, height);
+}
+
+/**
+ * The one size a "single" output asks for. Never enlarges: a box bigger than
+ * the image gives the image back (cropped to the box's shape for "cover").
+ */
+async function singleSize(
+  source: ImageData,
+  box: ImageSettings['single'],
+): Promise<ImageData> {
+  const { width: w, height: h, fit } = box;
+  if (!w && !h) return source;
+
+  if (fit === 'cover' && w && h) {
+    // The largest centred region with the box's shape...
+    const aspect = w / h;
+    let cw = source.width;
+    let ch = Math.round(cw / aspect);
+    if (ch > source.height) {
+      ch = source.height;
+      cw = Math.round(ch * aspect);
+    }
+    const cropped =
+      cw === source.width && ch === source.height
+        ? source
+        : crop(source, Math.floor((source.width - cw) / 2), Math.floor((source.height - ch) / 2), cw, ch);
+    // ...then down to the box, unless it is already smaller.
+    return cw > w ? resize(cropped, w, h) : cropped;
+  }
+
+  const scale = Math.min(w ? w / source.width : Infinity, h ? h / source.height : Infinity, 1);
+  if (scale >= 1) return source;
+  const tw = Math.max(1, Math.round(source.width * scale));
+  return resize(source, tw, scaledHeight(source.width, source.height, tw));
+}
+
 const formatLabel = (f: OutputFormat) => (f === 'fallback' ? 'original format' : f.toUpperCase());
 
 
@@ -390,6 +434,8 @@ type Reencoded = {
   /** Same pixels as AVIF / WebP, kept only when smaller than `bytes`. */
   avif?: Uint8Array;
   webp?: Uint8Array;
+  /** Set when the image was scaled down to the size it is shown at (ADR-030). */
+  resized?: { from: number; to: number };
 };
 
 /**
@@ -408,8 +454,9 @@ async function reencodeImage(
   stripFirst: boolean,
   modern?: { avif: number; webp: number },
   onProgress: Progress = () => {},
+  maxWidth?: number,
 ): Promise<Reencoded> {
-  const out = await reencodeInPlace(mime, bytes, quality, stripFirst, onProgress);
+  const out = await reencodeInPlace(mime, bytes, quality, stripFirst, onProgress, maxWidth);
   if (!modern || out.source === undefined) return out.result;
   if (mime !== 'image/jpeg' && mime !== 'image/png') return out.result;
 
@@ -438,6 +485,7 @@ async function reencodeInPlace(
   quality: number,
   stripFirst: boolean,
   onProgress: Progress,
+  maxWidth?: number,
 ): Promise<{ result: Reencoded; source?: ImageData }> {
   const warnings: string[] = [];
 
@@ -455,8 +503,22 @@ async function reencodeInPlace(
     };
   }
 
+  let resized: Reencoded['resized'];
+  if (maxWidth && source.width > maxWidth && mime !== 'image/gif') {
+    onProgress(0.15, 'Resizing to ' + maxWidth + 'px');
+    try {
+      const from = source.width;
+      source = await resize(source, maxWidth, scaledHeight(source.width, source.height, maxWidth));
+      resized = { from, to: maxWidth };
+    } catch {
+      warnings.push('Could not resize this image, so it was re-encoded at its full size.');
+    }
+  }
+
   onProgress(0.2, 'Re-encoding');
   const result = await encodeSameFormat(source, mime, bytes, quality, stripFirst, warnings);
+  // Only claim the resize if the resized bytes are what ships.
+  if (resized && result.bytes !== bytes && !result.skipped) result.resized = resized;
   return { result, source };
 }
 
@@ -595,10 +657,29 @@ const api = {
     base.naturalWidth = source.width;
     base.naturalHeight = source.height;
 
-    const widths = resolveWidths(settings.widths, source.width);
-    if (widths.length === 0) {
+    // One size instead of a ladder: scale (and for "cover", crop) once, then
+    // the ladder below runs with exactly that width.
+    if (settings.output === 'single') {
+      const sized = await singleSize(source, settings.single);
+      if (sized !== source) {
+        source = sized;
+        base.naturalWidth = source.width;
+        base.naturalHeight = source.height;
+      }
+    }
+
+    const all =
+      settings.output === 'single' ? [source.width] : resolveWidths(settings.widths, source.width);
+    if (all.length === 0) {
       return { ...base, skipped: 'Too small to be worth resizing. It was copied unchanged.' };
     }
+    // This job's share of the widths: largest first, dealt round-robin, so the
+    // slowest encodes land on different workers.
+    const slice = settings.slice;
+    const widths = slice
+      ? [...all].reverse().filter((_, i) => i % slice.count === slice.index).reverse()
+      : all;
+    if (widths.length === 0) return { ...base, empty: true };
 
     const formats = (['avif', 'webp', 'fallback'] as const).filter((f) => settings.formats[f]);
     if (formats.length === 0) {
@@ -656,7 +737,13 @@ const api = {
     // Never for HEIC or BMP: "keeping the original" would hand most browsers a
     // file they cannot show (HEIC) or a needlessly huge one (BMP).
     const fullSize = variants.find((v) => v.format === 'fallback' && v.width === source.width);
-    if (fullSize && fullSize.bytes.byteLength >= bytes.byteLength && WEB_DISPLAYABLE.has(mime)) {
+    if (
+      fullSize &&
+      fullSize.bytes.byteLength >= bytes.byteLength &&
+      WEB_DISPLAYABLE.has(mime) &&
+      // A one-size output is a different picture from the original; never swap it back.
+      settings.output !== 'single'
+    ) {
       const stripped = settings.stripMetadata
         ? stripMetadata(bytes, mime)
         : { bytes, removed: 0 };

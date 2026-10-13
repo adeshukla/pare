@@ -343,7 +343,12 @@ function fingerprint(doc: Document, page: string, viewport: number): PageSnapsho
   };
 }
 
-async function render(url: string, viewport: number, page: string): Promise<PageSnapshot> {
+async function render(
+  url: string,
+  viewport: number,
+  page: string,
+  inspect?: (doc: Document) => void,
+): Promise<PageSnapshot> {
   const frame = document.createElement('iframe');
   // allow-same-origin without allow-scripts: the document is readable, and no
   // script runs. Both sides are measured the same way, so the comparison is
@@ -379,6 +384,7 @@ async function render(url: string, viewport: number, page: string): Promise<Page
       ),
     );
 
+    inspect?.(doc);
     return fingerprint(doc, page, viewport);
   } finally {
     frame.remove();
@@ -556,3 +562,220 @@ export const toVirtual = (
   mime: string,
   kind: Asset['kind'],
 ): VirtualFile => ({ path, bytes: encoder.encode(text), mime, kind });
+
+/* ------------------------------------------------------------------ *
+ * Measuring displayed image sizes - ADR-030
+ * ------------------------------------------------------------------ */
+
+/**
+ * Widths an image is measured at, with the device pixel ratio a screen of
+ * that width usually has. Phones are 3x; everything wider is taken as 2x, so a
+ * laptop or desktop image stays sharp on a high-resolution screen. 1920 is
+ * here, beyond the verifier's own widths, because a full-width image is at its
+ * largest on the widest screen.
+ */
+export const MEASURE_AT: Array<{ width: number; dpr: number }> = [
+  { width: 360, dpr: 3 },
+  { width: 768, dpr: 2 },
+  { width: 1280, dpr: 2 },
+  { width: 1920, dpr: 2 },
+];
+
+export type ImageMeasure = {
+  /** Largest displayed width times that screen's pixel ratio, in image pixels. */
+  needed: number;
+  /** The image's own width, as the browser decoded it. */
+  natural: number;
+  /**
+   * Set when any appearance could not be measured or does not let Pare decide
+   * the size: it did not load, it sits in a <picture>, or it has a srcset.
+   */
+  unsure?: string;
+};
+
+/**
+ * How large each image is ever shown, across every page at every width.
+ * Keyed by folder-relative path. An image that never appears, or appears only
+ * hidden, gets no entry.
+ */
+export async function measureImages(
+  files: VirtualFile[],
+  pages: string[],
+): Promise<Map<string, ImageMeasure>> {
+  const out = new Map<string, ImageMeasure>();
+  if (typeof document === 'undefined' || pages.length === 0) return out;
+
+  // A lazy image below the fold never loads in a measuring frame. This copy is
+  // only ever measured, never shipped, so every image in it loads at once.
+  const eager = files.map((f) =>
+    f.kind === 'html'
+      ? { ...f, bytes: encoder.encode(decoder.decode(f.bytes).replace(/\sloading\s*=\s*["']?lazy["']?/gi, '')) }
+      : f,
+  );
+  const minted = mintUrls(eager, discoverRefs(eager));
+  const pathOf = new Map([...minted.urls].map(([path, url]) => [url, path]));
+
+  const note = (path: string, update: (m: ImageMeasure) => void) => {
+    const m = out.get(path) ?? { needed: 0, natural: 0 };
+    update(m);
+    out.set(path, m);
+  };
+
+  try {
+    for (const page of pages) {
+      const url = minted.urls.get(page);
+      if (!url) continue;
+      for (const { width, dpr } of MEASURE_AT) {
+        await render(url, width, page, (doc) => {
+          for (const img of Array.from(doc.images)) {
+            const path = pathOf.get(img.getAttribute('src') ?? '');
+            if (!path) continue;
+            if (img.closest('picture') || img.hasAttribute('srcset')) {
+              note(path, (m) => (m.unsure = 'the browser picks its size from a srcset or <picture>'));
+              continue;
+            }
+            if (!img.complete || img.naturalWidth === 0) {
+              note(path, (m) => (m.unsure = 'it did not load while being measured'));
+              continue;
+            }
+            const shown = img.getBoundingClientRect().width;
+            // Hidden at this width (display:none, or a zero-width box): this
+            // appearance says nothing about the size it needs.
+            if (shown <= 0) continue;
+            note(path, (m) => {
+              m.natural = img.naturalWidth;
+              m.needed = Math.max(m.needed, Math.ceil(shown * dpr));
+            });
+          }
+        });
+      }
+    }
+  } finally {
+    minted.revoke();
+  }
+
+  for (const [path, m] of out) if (m.needed === 0 && !m.unsure) out.delete(path);
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * Possibly-unused CSS - ADR-031. A report, never a removal.
+ * ------------------------------------------------------------------ */
+
+export type UnusedRule = { selector: string; bytes: number };
+export type UnusedSheet = { source: string; rules: UnusedRule[]; unusedBytes: number; totalBytes: number };
+
+/** Split a selector list on top-level commas only - `:is(a, b)` stays whole. */
+export function splitSelectors(list: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of list) {
+    if (ch === '(' || ch === '[') depth++;
+    else if (ch === ')' || ch === ']') depth--;
+    if (ch === ',' && depth === 0) {
+      out.push(current.trim());
+      current = '';
+    } else current += ch;
+  }
+  if (current.trim()) out.push(current.trim());
+  return out;
+}
+
+/**
+ * Pseudo-classes and pseudo-elements describe states and parts a static page
+ * never shows - hover, focus, ::before. Stripped, the selector asks only "does
+ * the element exist?", which is the question a report can answer. Stripping
+ * can only make a selector match more, so it errs towards "used".
+ */
+export function structuralSelector(selector: string): string {
+  return selector
+    .replace(/::?[a-zA-Z-]+(\((?:[^()]|\([^()]*\))*\))?/g, '')
+    .replace(/\s+([>+~])\s*$/g, '')
+    .trim();
+}
+
+function selectorMatches(doc: Document, selector: string): boolean {
+  // Nesting (&) is relative to a parent rule this test cannot see: count it used.
+  if (selector.includes('&')) return true;
+  for (const candidate of [selector, structuralSelector(selector)]) {
+    if (candidate === '' || /^[>+~]/.test(candidate)) return true;
+    try {
+      if (doc.querySelector(candidate)) return true;
+    } catch {
+      // Not a valid selector on its own (a pseudo-element); try the stripped form.
+    }
+  }
+  return false;
+}
+
+/**
+ * Every style rule in the site's own stylesheets and <style> blocks that
+ * matched nothing on any page, with scripts off. Many will be genuinely dead;
+ * some will be used by scripts, by server-generated content, by pages not in
+ * the folder, or by states nobody rendered. That is why this is a list for a
+ * person to read and never something Pare acts on (ADR-002, ADR-031).
+ */
+export async function findUnusedCss(files: VirtualFile[], pages: string[]): Promise<UnusedSheet[]> {
+  if (typeof document === 'undefined' || pages.length === 0) return [];
+  const minted = mintUrls(files, discoverRefs(files));
+  const pathOf = new Map([...minted.urls].map(([path, url]) => [url, path]));
+
+  type Seen = { selector: string; bytes: number; used: boolean };
+  const sheets = new Map<string, Map<string, Seen>>();
+  const totals = new Map<string, number>();
+
+  const walk = (rules: CSSRuleList, source: string, doc: Document) => {
+    for (const rule of Array.from(rules)) {
+      const style = rule as CSSStyleRule;
+      const nested = (rule as CSSGroupingRule).cssRules;
+      if (typeof style.selectorText === 'string') {
+        const key = style.selectorText;
+        const bucket = sheets.get(source) ?? new Map<string, Seen>();
+        sheets.set(source, bucket);
+        const seen = bucket.get(key) ?? { selector: key, bytes: style.cssText.length, used: false };
+        if (!seen.used) seen.used = splitSelectors(key).some((s) => selectorMatches(doc, s));
+        bucket.set(key, seen);
+      }
+      if (nested && nested.length > 0) walk(nested, source, doc);
+    }
+  };
+
+  try {
+    for (const page of pages) {
+      const url = minted.urls.get(page);
+      if (!url) continue;
+      await render(url, 1280, page, (doc) => {
+        for (const sheet of Array.from(doc.styleSheets)) {
+          const source = sheet.href ? pathOf.get(sheet.href) : `${page} (<style>)`;
+          if (!source) continue;
+          let rules: CSSRuleList;
+          try {
+            rules = sheet.cssRules;
+          } catch {
+            continue; // cross-origin; not ours to report on
+          }
+          if (!totals.has(source)) {
+            totals.set(source, Array.from(rules).reduce((n, r) => n + r.cssText.length, 0));
+          }
+          walk(rules, source, doc);
+        }
+      });
+    }
+  } finally {
+    minted.revoke();
+  }
+
+  const out: UnusedSheet[] = [];
+  for (const [source, bucket] of sheets) {
+    const rules = [...bucket.values()].filter((r) => !r.used).map(({ selector, bytes }) => ({ selector, bytes }));
+    if (rules.length === 0) continue;
+    out.push({
+      source,
+      rules,
+      unusedBytes: rules.reduce((n, r) => n + r.bytes, 0),
+      totalBytes: totals.get(source) ?? 0,
+    });
+  }
+  return out.sort((a, b) => b.unusedBytes - a.unusedBytes);
+}

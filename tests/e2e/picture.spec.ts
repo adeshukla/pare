@@ -194,4 +194,18 @@ test('an expanded snippet scrolls in its own box, not the page', async ({ page: 
   }));
   expect(page).toBeLessThanOrEqual(viewport);
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport);
+
+  // Nothing in the expanded row may be wider than the card that holds it - the
+  // card clips, so overflow there is content silently cut off, not a scrollbar.
+  // Checked at "Actual size" too, where the picture is 1200px wide.
+  for (const actual of [false, true]) {
+    if (actual) await p.getByRole('checkbox', { name: 'Actual size' }).check();
+    const overflow = await p.evaluate(() => {
+      const td = document.querySelector('td[colspan] figure')!.closest('td')!;
+      const card = td.closest('.card')!.getBoundingClientRect();
+      const parts = [td.firstElementChild!, ...td.firstElementChild!.children];
+      return parts.map((el) => Math.round(el.getBoundingClientRect().right - card.right)).filter((d) => d > 0);
+    });
+    expect(overflow, `parts wider than the card (actual size: ${actual})`).toEqual([]);
+  }
 });

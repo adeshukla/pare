@@ -248,7 +248,7 @@ function FileRow({ row, index }: { row: Row; index: number }) {
       {open && row.snippet && (
         <tr className="border-b border-rule bg-raised/60">
           <td colSpan={4} className="rise px-3 pt-1 pb-5">
-            <div className="grid gap-5">
+            <div className="grid min-w-0 grid-cols-1 gap-5">
               {row.outcome && !row.outcome.skipped && (
                 <>
                   <FormatBars row={row} />

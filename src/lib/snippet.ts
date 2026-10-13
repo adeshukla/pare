@@ -49,20 +49,29 @@ export function pictureSnippet(input: SnippetInput): string {
 
   const lines: string[] = [];
   const formats = new Set(variants.map((v) => v.format));
-  lines.push(
-    `<!-- ${esc(input.sourcePath)} → ${new Set(variants.map((v) => v.width)).size} widths × ${formats.size} formats -->`,
+  const widths = new Set(variants.map((v) => v.width)).size;
+  // One width: a plain address, no "800w" and no sizes - there is nothing for
+  // the browser to choose between.
+  const single = widths === 1;
+  const sources = ORDER.map((format) => variants.filter((v) => v.format === format)).filter(
+    (group) => group.length > 0,
   );
-  lines.push('<picture>');
+  // One format means nothing for <picture> to choose between: a plain <img>.
+  const wrap = sources.length > 0 && formats.size > 1;
+  const indent = wrap ? '  ' : '';
+  lines.push(`<!-- ${esc(input.sourcePath)} → ${widths} width${widths === 1 ? '' : 's'} × ${formats.size} format${formats.size === 1 ? '' : 's'} -->`);
+  if (wrap) lines.push('<picture>');
 
-  for (const format of ORDER) {
-    const group = variants.filter((v) => v.format === format);
-    if (group.length === 0) continue;
+  for (const group of wrap ? sources : []) {
     lines.push(
-      `  <source type="${esc(group[0]!.mime)}" srcset="${srcset(group)}" sizes="${esc(sizes)}">`,
+      single
+        ? `  <source type="${esc(group[0]!.mime)}" srcset="${esc(group[0]!.path)}">`
+        : `  <source type="${esc(group[0]!.mime)}" srcset="${srcset(group)}" sizes="${esc(sizes)}">`,
     );
   }
 
-  const fallback = variants.filter((v) => v.format === 'fallback');
+  // Without a wrapper, the <img> carries every width of its one format.
+  const fallback = wrap ? variants.filter((v) => v.format === 'fallback') : variants;
   const attrs = [
     `src="${esc(input.imgSrc)}"`,
     fallback.length > 1 ? `srcset="${srcset(fallback)}"` : '',
@@ -77,7 +86,7 @@ export function pictureSnippet(input: SnippetInput): string {
       : '',
   ].filter(Boolean);
 
-  lines.push(`  <img ${attrs.join(' ')}>`);
-  lines.push('</picture>');
+  lines.push(`${indent}<img ${attrs.join(' ')}>`);
+  if (wrap) lines.push('</picture>');
   return lines.join('\n');
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { canPickDirectory, fromDataTransfer, fromFileList, pickDirectory } from '../lib/ingest';
+import { canPickDirectory, fromDataTransfer, fromFileList, MAX_FILES, pickDirectory } from '../lib/ingest';
+import { expandZips } from '../lib/unzip';
 import type { Asset } from '../lib/types';
 import { Icon } from './Visuals';
 
@@ -8,7 +9,13 @@ import { Icon } from './Visuals';
  * chore once the page has scrolled past it - and a pasted image (a screenshot,
  * say) is taken too, unless the paste is going into a text field.
  */
-export function DropZone({ onAssets, compact }: { onAssets: (assets: Asset[]) => void; compact?: boolean }) {
+export function DropZone({
+  onAssets,
+  compact,
+}: {
+  onAssets: (assets: Asset[], notes: string[]) => void;
+  compact?: boolean;
+}) {
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -20,7 +27,9 @@ export function DropZone({ onAssets, compact }: { onAssets: (assets: Asset[]) =>
   async function load(fn: () => Promise<Asset[]>) {
     setBusy(true);
     try {
-      handler.current(await fn());
+      // A zip anywhere in the drop is opened in place (ADR-029).
+      const { assets, notes } = await expandZips(await fn(), MAX_FILES);
+      handler.current(assets, notes);
     } catch (e) {
       // User cancelled the picker. Not an error worth surfacing.
       if ((e as DOMException)?.name !== 'AbortError') throw e;
@@ -153,7 +162,7 @@ export function DropZone({ onAssets, compact }: { onAssets: (assets: Asset[]) =>
             {busy ? 'Reading files…' : 'Drop a folder or files here'}
           </p>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted">
-            Or paste an image. Nothing is uploaded — everything runs in this browser tab.
+            Or a .zip, or paste an image. Nothing is uploaded — everything runs in this browser tab.
           </p>
           {buttons}
         </div>

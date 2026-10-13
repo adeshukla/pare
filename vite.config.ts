@@ -2,9 +2,21 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+const ISOLATION = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+};
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   worker: { format: 'es' },
+
+  // The isolation headers production sends (public/_headers), on the preview of
+  // the built site, which the production tests run against. Not on the dev
+  // server: it injects its own client into workers, and WebKit refuses those
+  // imports under COEP, which hangs the threaded AVIF encoder - a dev-only
+  // failure that the production build does not have.
+  preview: { headers: ISOLATION },
 
   // clean-css and terser, which html-minifier-terser pulls in, read `process`
   // at module scope. They are Node libraries being run somewhere they were not

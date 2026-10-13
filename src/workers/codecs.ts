@@ -17,8 +17,12 @@ export const MIME_FOR_FORMAT: Record<Exclude<OutputFormat, 'fallback'>, string> 
 export async function encodeAvif(data: ImageData, quality: number): Promise<Uint8Array> {
   const { default: encode } = await import('@jsquash/avif/encode');
   // speed 6 is the point where encode time stops being the bottleneck for a
-  // batch drop without giving up a meaningful amount of compression.
-  return new Uint8Array(await encode(data, { quality, speed: 6 }));
+  // batch drop without giving up a meaningful amount of compression. Above
+  // ~4 megapixels (a full-page screenshot, a camera original at full size) one
+  // encode at speed 6 runs for minutes, so those use speed 8: a few percent
+  // larger, several times faster. The report shows the real bytes either way.
+  const speed = data.width * data.height > 4_000_000 ? 8 : 6;
+  return new Uint8Array(await encode(data, { quality, speed }));
 }
 
 export async function encodeWebp(data: ImageData, quality: number): Promise<Uint8Array> {

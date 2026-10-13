@@ -69,7 +69,7 @@ export function Compare({
     FORMAT_LABEL[v.format];
 
   return (
-    <figure>
+    <figure className="min-w-0">
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
         <span className="font-medium text-muted">Compare the original with</span>
         <Segmented

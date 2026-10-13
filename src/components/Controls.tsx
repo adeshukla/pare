@@ -61,6 +61,12 @@ function presetOf(quality: Record<OutputFormat, number>): QualityPreset {
   return 'custom';
 }
 
+/** A whole number above zero, or null for "not set". */
+function positive(text: string): number | null {
+  const n = Number.parseInt(text, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function parseWidths(text: string): number[] {
   const parsed = text
     .split(/[,\s]+/)
@@ -259,28 +265,95 @@ function ImageControls({
 
       <div className="grid content-start gap-3">
         <p className="eyebrow">Sizes and markup</p>
-        <label className="block text-sm font-medium">
-          Widths
-          <input
-            type="text"
-            defaultValue={settings.widths.join(', ')}
-            onBlur={(e) => patch({ widths: parseWidths(e.target.value) })}
-            className="field"
+        <div>
+          <Segmented
+            name="image-output"
+            label="Output"
+            value={settings.output}
+            onChange={(output: ImageSettings['output']) => patch({ output })}
+            options={[
+              { value: 'responsive', label: 'Responsive set' },
+              { value: 'single', label: 'One size' },
+            ]}
           />
-          <span className="mt-1 block text-xs font-normal text-muted">
-            Widths larger than an image are dropped. Nothing is ever upscaled.
+          <span className="mt-1.5 block text-xs text-muted">
+            {settings.output === 'responsive'
+              ? 'Several widths, and markup that lets each screen download the one it needs.'
+              : 'One file per format at the size you set. For a thumbnail, an avatar, or an image you place yourself.'}
           </span>
-        </label>
+        </div>
 
-        <label className="block text-sm font-medium">
-          <code className="font-mono text-xs">sizes</code> attribute
-          <input
-            type="text"
-            defaultValue={settings.sizes}
-            onBlur={(e) => patch({ sizes: e.target.value })}
-            className="field"
-          />
-        </label>
+        {settings.output === 'single' ? (
+          <div className="rise grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm font-medium">
+                Width
+                <input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  placeholder="auto"
+                  defaultValue={settings.single.width ?? ''}
+                  onBlur={(e) => patch({ single: { ...settings.single, width: positive(e.target.value) } })}
+                  className="field"
+                />
+              </label>
+              <label className="block text-sm font-medium">
+                Height
+                <input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  placeholder="auto"
+                  defaultValue={settings.single.height ?? ''}
+                  onBlur={(e) => patch({ single: { ...settings.single, height: positive(e.target.value) } })}
+                  className="field"
+                />
+              </label>
+            </div>
+            <Segmented
+              name="image-fit"
+              label="Fit"
+              value={settings.single.fit}
+              onChange={(fit: ImageSettings['single']['fit']) => patch({ single: { ...settings.single, fit } })}
+              options={[
+                { value: 'contain', label: 'Fit inside' },
+                { value: 'cover', label: 'Crop to fill' },
+              ]}
+            />
+            <span className="text-xs text-muted">
+              {settings.single.fit === 'cover'
+                ? 'Fills the width and height exactly, cutting from the centre. Needs both.'
+                : 'Shrinks to fit inside the width and height, keeping the shape.'}{' '}
+              Never enlarged. Turn off the formats you do not need to get a single file.
+            </span>
+          </div>
+        ) : (
+          <>
+            <label className="block text-sm font-medium">
+              Widths
+              <input
+                type="text"
+                defaultValue={settings.widths.join(', ')}
+                onBlur={(e) => patch({ widths: parseWidths(e.target.value) })}
+                className="field"
+              />
+              <span className="mt-1 block text-xs font-normal text-muted">
+                Widths larger than an image are dropped. Nothing is ever upscaled.
+              </span>
+            </label>
+
+            <label className="block text-sm font-medium">
+              <code className="font-mono text-xs">sizes</code> attribute
+              <input
+                type="text"
+                defaultValue={settings.sizes}
+                onBlur={(e) => patch({ sizes: e.target.value })}
+                className="field"
+              />
+            </label>
+          </>
+        )}
 
         <div>
           <Toggle

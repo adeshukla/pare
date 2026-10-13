@@ -12,6 +12,7 @@ import {
 import { Features, Steps } from './components/Hero';
 import { Results } from './components/Results';
 import { FilesSavings } from './components/Savings';
+import { UnusedCss } from './components/UnusedCss';
 import { Backdrop, Icon, Logo, ThemeToggle, Toast } from './components/Visuals';
 import { buildZip, download, outputFiles, zipToBlob } from './lib/emit';
 import { usePersistent } from './lib/persist';
@@ -21,6 +22,7 @@ import {
   distFiles,
   FOLDER_DEFAULTS,
   optimizeFolder,
+  toVirtual,
   verificationInputs,
   type FolderResult,
   type FolderSettings,
@@ -102,12 +104,12 @@ export default function App() {
     ].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
   }, [rows]);
 
-  const accept = useCallback((assets: Asset[]) => {
+  const accept = useCallback((assets: Asset[], notes: string[] = []) => {
     if (assets.length === 0) {
-      setNote('Nothing readable in that drop.');
+      setNote(notes.join(' ') || 'Nothing readable in that drop.');
       return;
     }
-    setNote('');
+    setNote(notes.join(' '));
     setRan(false);
     setFolder(undefined);
     setVerification(undefined);
@@ -134,14 +136,19 @@ export default function App() {
     setVerification(undefined);
 
     const assets = rows.map((r) => r.asset);
-    const result = await optimizeFolder(assets, settings, active, (path, ratio, label) =>
-      setRows((prev) =>
-        prev.map((r) =>
-          r.asset.path === path
-            ? { ...r, state: ratio >= 1 ? 'done' : 'running', progress: ratio, label }
-            : r,
+    const result = await optimizeFolder(
+      assets,
+      settings,
+      active,
+      (path, ratio, label) =>
+        setRows((prev) =>
+          prev.map((r) =>
+            r.asset.path === path
+              ? { ...r, state: ratio >= 1 ? 'done' : 'running', progress: ratio, label }
+              : r,
+          ),
         ),
-      ),
+      setNote,
     );
     setFolder(result);
     setRows((prev) => prev.map((r) => ({ ...r, state: 'done', progress: 1, label: '' })));
@@ -226,7 +233,7 @@ export default function App() {
       <Backdrop />
 
       <header className="sticky top-0 z-40 border-b border-transparent bg-paper/70 backdrop-blur-xl supports-[backdrop-filter]:bg-paper/60">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <button onClick={startOver} className="rounded-lg" aria-label="Pare — back to the start">
             <Logo />
           </button>
@@ -246,7 +253,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 pt-10 pb-16 sm:px-6 sm:pt-16">
+      <main className="mx-auto max-w-[1440px] px-4 pt-10 pb-16 sm:px-6 sm:pt-16">
         {!started && (
           <section className="mx-auto max-w-3xl text-center">
             <p className="rise chip mx-auto" style={{ ['--i' as string]: 0 }}>
@@ -323,7 +330,7 @@ export default function App() {
               </div>
             )}
 
-            <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
+            <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
               <aside className="grid gap-4 lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:pr-1 lg:pb-4">
                 {mode === 'site' ? (
                   <FolderControls
@@ -431,6 +438,9 @@ export default function App() {
                     )}
                     <FolderWarnings result={folder} />
                     <SiteFiles rows={rows} result={folder} />
+                    {folder.pages.length > 0 && (
+                      <UnusedCss files={toVirtual(rows.map((r) => r.asset))} pages={folder.pages} />
+                    )}
                   </>
                 )}
 
@@ -472,7 +482,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-rule">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-muted sm:px-6">
+        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-muted sm:px-6">
           <Logo />
           <p>
             No upload, no account, no server.
