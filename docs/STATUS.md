@@ -10,7 +10,7 @@ Updated: 2026-10-13
 | **Phase 3 — Text assets** | ✅ complete (CSSO rejected — ADR-020) |
 | **Phase 4 — Folder mode** | ✅ complete (critical CSS not shipped — ADR-018) |
 | **Phase 5 — Verification** | ✅ complete (web-vitals not shipped — ADR-019) |
-| Live at | **https://pare-3sm.pages.dev** — production from `098a02d` (2026-10-13), deployed with `wrangler pages deploy`. `pare.devstash.me` not yet attached. |
+| Live at | **https://pare.devstash.me** (also https://pare-3sm.pages.dev) — production from `098a02d` (2026-10-13), deployed with `wrangler pages deploy`. |
 | Initial JS | **103.9 KB gzipped** of a 150 KB budget |
 | Tests | 241 unit (Vitest) + 91 browser tests × Chromium, Firefox, WebKit on the dev server, plus the built site with production headers (offline in Chromium, a photo in all three engines) — all passing; 4 skips where an engine cannot synthesise a drop or paste |
 
@@ -214,7 +214,7 @@ right-sized images · ADR-031 unused-CSS report · ADR-032 big images in paralle
       production deploy done by hand
 - [ ] Set `CLOUDFLARE_API_TOKEN` and
       `CLOUDFLARE_ACCOUNT_ID`, then re-run the deploy job and read its log
-- [ ] Point `pare.devstash.me` at it (custom domain on the Pages project)
+- [x] Point `pare.devstash.me` at it (custom domain on the Pages project)
 - [ ] Run folder mode against a real WordPress or static-site export
 - [ ] Measure real savings on real photographs and a full multi-script font
 
