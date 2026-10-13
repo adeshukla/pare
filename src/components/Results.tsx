@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { download, mainOutput } from '../lib/emit';
 import { bytes, reduction } from '../lib/format';
-import { servedVariant, type Row } from '../lib/optimize';
+import { locationRemoved, measure, type Row } from '../lib/optimize';
 import { Compare } from './Compare';
 import { FORMAT_LABEL } from '../lib/settings';
 import { FileThumb, Icon } from './Visuals';
@@ -124,43 +124,6 @@ function FormatBars({ row }: { row: Row }) {
   );
 }
 
-/** before, after, and the one-line detail shown under the file name. */
-function measure(row: Row): { before: number; after?: number; detail: string } {
-  const image = row.outcome;
-  if (image) {
-    return {
-      before: image.bytesBefore,
-      after: image.skipped ? image.bytesBefore : servedVariant(image)?.bytes.byteLength,
-      detail: image.naturalWidth > 0 ? image.naturalWidth + '×' + image.naturalHeight : '',
-    };
-  }
-
-  const font = row.font;
-  if (font) {
-    const detail = font.skipped
-      ? font.container.toUpperCase()
-      : font.slices.length > 1
-        ? font.slices.length + ' files · ' + font.codepointsAfter + ' characters'
-        : font.codepointsAfter + ' of ' + font.codepointsBefore + ' characters';
-    return { before: font.bytesBefore, after: font.skipped ? font.bytesBefore : font.bytesServed, detail };
-  }
-
-  const text = row.text;
-  if (text) {
-    const encodings = text.siblings.map((s) => (s.encoding === 'gzip' ? 'gzip' : 'brotli'));
-    return {
-      before: text.bytesBefore,
-      after: text.bytesTransport,
-      detail: encodings.length > 0 ? 'minified + ' + encodings.join(' + ') : 'minified',
-    };
-  }
-
-  const raw = row.inspection?.rawBytes ?? row.asset.bytes.byteLength;
-  // Until the run finishes nothing has been copied anywhere yet; saying so early
-  // would describe an outcome that has not happened.
-  return { before: raw, after: undefined, detail: row.state === 'done' ? 'copied unchanged' : '' };
-}
-
 /**
  * Save and, where the system offers it, Share the row's main file (ADR-036).
  * On a phone these are the way out: a zip lands in Downloads, unopened, while a
@@ -243,6 +206,12 @@ function FileRow({ row, index }: { row: Row; index: number }) {
                 <span className="block font-mono text-[13px] font-medium break-all">{row.asset.path}</span>
               )}
               <span className="mt-0.5 block truncate text-xs text-muted">{status}</span>
+              {locationRemoved(row) && (
+                <span className="chip mt-1.5 text-[11px]" title="This photo recorded where it was taken. The files Pare made do not.">
+                  <Icon name="shield" size={12} className="text-saved" />
+                  Location removed
+                </span>
+              )}
               {row.state === 'done' && <FileActions row={row} />}
             </div>
           </div>

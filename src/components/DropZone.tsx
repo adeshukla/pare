@@ -14,7 +14,7 @@ export function DropZone({
   onAssets,
   compact,
 }: {
-  onAssets: (assets: Asset[], notes: string[]) => void;
+  onAssets: (assets: Asset[], notes: string[], start?: boolean) => void;
   compact?: boolean;
 }) {
   const [over, setOver] = useState(false);
@@ -37,6 +37,23 @@ export function DropZone({
     } finally {
       setBusy(false);
       setOver(false);
+    }
+  }
+
+  /**
+   * A photo to try Pare on without one of your own (audit item 4), optimized
+   * straight away. It records a location, so the privacy mark shows too.
+   */
+  async function trySample() {
+    setBusy(true);
+    try {
+      const blob = await (await fetch('/sample.jpg')).blob();
+      const assets = await fromFileList([new File([blob], 'sample-photo.jpg', { type: 'image/jpeg' })]);
+      handler.current(assets, [], true);
+    } catch {
+      handler.current([], ['The sample could not be loaded. Try again once you are online.']);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -173,6 +190,13 @@ export function DropZone({
             Or a .zip, or paste an image. Nothing is uploaded — everything runs in this browser tab.
           </p>
           {buttons}
+          <button
+            onClick={() => void trySample()}
+            disabled={busy}
+            className="mt-4 cursor-pointer text-sm font-medium text-accent underline-offset-4 hover:underline"
+          >
+            No file to hand? Try it with a sample photo
+          </button>
         </div>
       )}
 

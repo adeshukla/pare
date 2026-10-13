@@ -381,6 +381,8 @@ export function FolderSummary({ result }: { result: FolderResult }) {
         <p className="mt-4 max-w-prose text-sm text-muted">
           {result.files.length} files &middot; {result.renamed.size} fingerprinted &middot;{' '}
           {result.rewritten} address{result.rewritten === 1 ? '' : 'es'} updated
+          {result.locationsRemoved > 0 &&
+            ` · location removed from ${result.locationsRemoved} photo${result.locationsRemoved === 1 ? '' : 's'}`}
           {result.resized > 0 &&
             ` · ${result.resized} image${result.resized === 1 ? '' : 's'} scaled down to the size ${result.resized === 1 ? 'it is' : 'they are'} shown at`}
           .

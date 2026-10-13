@@ -14,6 +14,8 @@ import { Results } from './components/Results';
 import { FilesSavings } from './components/Savings';
 import { UnusedCss } from './components/UnusedCss';
 import { Backdrop, Icon, Logo, ThemeToggle, Toast } from './components/Visuals';
+import { diagnostic } from './lib/diagnostic';
+import { savingsReport, type ReportEntry } from './lib/share-report';
 import { buildZip, download, outputFiles, zipToBlob } from './lib/emit';
 import { usePersistent } from './lib/persist';
 import { canSaveToFolder, saveToFolder } from './lib/save-folder';
@@ -27,7 +29,7 @@ import {
   type FolderResult,
   type FolderSettings,
 } from './lib/folder';
-import { isTextKind, newRow, optimizeAssets, summarise, type Row, type Settings } from './lib/optimize';
+import { isTextKind, measure, newRow, optimizeAssets, summarise, type Row, type Settings } from './lib/optimize';
 import { poolSize, warmUp } from './lib/pool';
 import { DEFAULTS, FONT_DEFAULTS, TEXT_DEFAULTS } from './lib/settings';
 import type { Asset } from './lib/types';
@@ -64,6 +66,8 @@ export default function App() {
   const [folder, setFolder] = useState<FolderResult>();
   const [verification, setVerification] = useState<VerifyReport>();
   const [toast, setToast] = useState<{ id: number; text: string }>();
+  /** Set by the sample button: run as soon as the rows are in. */
+  const [autostart, setAutostart] = useState(false);
 
   useEffect(() => {
     void registerOffline().then(setOffline);
@@ -116,7 +120,7 @@ export default function App() {
     ].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
   }, [rows]);
 
-  const accept = useCallback((assets: Asset[], notes: string[] = []) => {
+  const accept = useCallback((assets: Asset[], notes: string[] = [], start = false) => {
     if (assets.length === 0) {
       setNote(notes.join(' ') || 'Nothing readable in that drop.');
       return;
@@ -126,6 +130,7 @@ export default function App() {
     setFolder(undefined);
     setVerification(undefined);
     setRows(assets.map(newRow));
+    setAutostart(start);
 
     // Start loading the image encoders now, while the settings are read.
     const images = assets.filter((a) => a.kind === 'image');
@@ -200,6 +205,41 @@ export default function App() {
     } finally {
       setRunning(false);
     }
+  }
+
+  useEffect(() => {
+    if (!autostart || running || rows.length === 0) return;
+    // After this render commits; go() reads this render's rows and mode.
+    queueMicrotask(() => {
+      setAutostart(false);
+      void go();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autostart, rows]);
+
+  async function copyDiagnostic() {
+    const text = diagnostic({ rows, settings, folderSettings, mode, folder, verification });
+    try {
+      await navigator.clipboard.writeText(text);
+      say('Copied. Paste it into your report - it holds no file names or contents.');
+    } catch {
+      say('Copying was refused by the browser.');
+    }
+  }
+
+  /** A before-and-after page to hand on (audit item 12). */
+  function downloadReport() {
+    const entries: ReportEntry[] =
+      mode === 'site' && folder
+        ? folder.files
+            .filter((f) => !f.siblingOf)
+            .map((f) => ({ name: f.path, before: f.bytesBefore, after: f.bytesServed ?? f.bytes.byteLength, note: f.skipped }))
+        : rows.map((r) => {
+            const m = measure(r);
+            return { name: r.asset.path, before: m.before, after: m.after ?? m.before, note: m.detail };
+          });
+    const html = savingsReport(entries, mode === 'site' ? 'Whole site' : 'Files');
+    download(new Blob([html], { type: 'text/html' }), 'pare-report.html');
   }
 
   function downloadSite() {
@@ -459,6 +499,10 @@ export default function App() {
                             Save to a folder…
                           </button>
                         )}
+                        <button onClick={downloadReport} className="btn">
+                          <Icon name="layers" size={16} />
+                          Savings report
+                        </button>
                         <p className="basis-full text-xs text-muted">
                           Upload the contents in place of your folder. Your original files are
                           untouched.
@@ -489,6 +533,10 @@ export default function App() {
                           Save to a folder…
                         </button>
                       )}
+                      <button onClick={downloadReport} className="btn">
+                        <Icon name="layers" size={16} />
+                        Savings report
+                      </button>
                       {snippetCount > 0 && (
                         <button onClick={() => void copyAllSnippets()} className="btn">
                           <Icon name="copy" size={16} />
@@ -530,6 +578,9 @@ export default function App() {
             {offline &&
               ' Anything you have used once in this browser keeps working without a connection.'}
           </p>
+          <button onClick={() => void copyDiagnostic()} className="cursor-pointer underline-offset-4 hover:text-ink hover:underline">
+            Copy details for a bug report
+          </button>
         </div>
       </footer>
 

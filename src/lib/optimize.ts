@@ -1,4 +1,5 @@
 import * as Comlink from 'comlink';
+import { hasGpsLocation } from './metadata';
 import { needsFor } from './needs';
 import { poolSize, runAll } from './pool';
 import { defaultImgWidth } from './ladder';
@@ -88,7 +89,56 @@ export type Report = {
   skipped: number;
   warnings: number;
   metadataRemoved: number;
+  /** Photos that carried a GPS position and whose output does not. */
+  locationsRemoved: number;
 };
+
+/** before, after, and the one-line detail shown under the file name. */
+export function measure(row: Row): { before: number; after?: number; detail: string } {
+  const image = row.outcome;
+  if (image) {
+    return {
+      before: image.bytesBefore,
+      after: image.skipped ? image.bytesBefore : servedVariant(image)?.bytes.byteLength,
+      detail: image.naturalWidth > 0 ? image.naturalWidth + '×' + image.naturalHeight : '',
+    };
+  }
+
+  const font = row.font;
+  if (font) {
+    const detail = font.skipped
+      ? font.container.toUpperCase()
+      : font.slices.length > 1
+        ? font.slices.length + ' files · ' + font.codepointsAfter + ' characters'
+        : font.codepointsAfter + ' of ' + font.codepointsBefore + ' characters';
+    return { before: font.bytesBefore, after: font.skipped ? font.bytesBefore : font.bytesServed, detail };
+  }
+
+  const text = row.text;
+  if (text) {
+    const encodings = text.siblings.map((s) => (s.encoding === 'gzip' ? 'gzip' : 'brotli'));
+    return {
+      before: text.bytesBefore,
+      after: text.bytesTransport,
+      detail: encodings.length > 0 ? 'minified + ' + encodings.join(' + ') : 'minified',
+    };
+  }
+
+  const raw = row.inspection?.rawBytes ?? row.asset.bytes.byteLength;
+  // Until the run finishes nothing has been copied anywhere yet; saying so early
+  // would describe an outcome that has not happened.
+  return { before: raw, after: undefined, detail: row.state === 'done' ? 'copied unchanged' : '' };
+}
+
+/**
+ * True when the photo carried a GPS position and nothing Pare made from it
+ * does - checked on the output bytes themselves, not assumed from a setting.
+ */
+export function locationRemoved(row: Row): boolean {
+  const image = row.outcome;
+  if (row.state !== 'done' || !image || image.skipped || image.variants.length === 0) return false;
+  return hasGpsLocation(row.asset.bytes) && image.variants.every((v) => !hasGpsLocation(v.bytes));
+}
 
 function blank(kind: ReportKind): KindLine {
   return { kind, count: 0, before: 0, served: 0, emitted: 0, skipped: 0 };
@@ -104,6 +154,7 @@ export function summarise(rows: Row[]): Report {
 
   let warnings = 0;
   let metadataRemoved = 0;
+  let locationsRemoved = 0;
 
   for (const row of rows) {
     if (row.outcome) {
@@ -113,6 +164,7 @@ export function summarise(rows: Row[]): Report {
       l.before += outcome.bytesBefore;
       warnings += outcome.warnings.length;
       metadataRemoved += outcome.metadataRemoved;
+      if (locationRemoved(row)) locationsRemoved++;
 
       if (outcome.skipped) {
         l.skipped++;
@@ -170,6 +222,7 @@ export function summarise(rows: Row[]): Report {
     skipped: out.reduce((n, l) => n + l.skipped, 0),
     warnings,
     metadataRemoved,
+    locationsRemoved,
   };
 }
 

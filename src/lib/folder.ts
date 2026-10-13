@@ -1,4 +1,5 @@
 import * as Comlink from 'comlink';
+import { hasGpsLocation } from './metadata';
 import type { Remote } from 'comlink';
 import { buildGraph, type Graph } from './graph';
 import { contentHash, hashedPath } from './hash';
@@ -144,6 +145,8 @@ export type FolderResult = {
   pictures: number;
   /** How many images were scaled down to the size they are shown at. */
   resized: number;
+  /** Photos that carried a GPS position the output no longer does. */
+  locationsRemoved: number;
 };
 
 const decoder = new TextDecoder('utf-8', { fatal: false });
@@ -460,6 +463,12 @@ export async function optimizeFolder(
     pages: graph.entries,
     pictures: modern.pictures,
     resized: files.filter((f) => f.resized).length,
+    locationsRemoved: assets.filter(
+      (a) =>
+        a.kind === 'image' &&
+        hasGpsLocation(a.bytes) &&
+        files.some((f) => f.path === a.path && !f.siblingOf && !hasGpsLocation(f.bytes)),
+    ).length,
   };
 }
 

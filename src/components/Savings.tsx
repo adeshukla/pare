@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { bytes, reduction } from '../lib/format';
 import { REPORT_LABEL, type Report, type ReportKind } from '../lib/optimize';
 import { SavingBars } from './FolderPanel';
-import { Burst, Ticker } from './Visuals';
+import { Burst, Icon, Ticker } from './Visuals';
 
 /**
  * The files-mode headline. Every figure here is from `summarise` (ADR-009);
@@ -90,6 +90,15 @@ export function FilesSavings({ report, children }: { report: Report; children: R
             </tbody>
           </table>
         </div>
+      )}
+
+      {report.locationsRemoved > 0 && (
+        <p className="flex items-center gap-2 border-t border-rule px-6 py-3 text-sm">
+          <Icon name="shield" size={15} className="flex-none text-saved" />
+          {report.locationsRemoved === 1
+            ? 'One photo held the place it was taken. That location is not in the file you download.'
+            : `${report.locationsRemoved} photos held the place they were taken. Those locations are not in the files you download.`}
+        </p>
       )}
 
       {report.skipped > 0 && (
