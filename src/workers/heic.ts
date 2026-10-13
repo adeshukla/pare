@@ -6,7 +6,7 @@
  * file is dropped, inside a worker, and never otherwise.
  *
  * libheif is LGPL-3.0. It is loaded unmodified, as its own file, from the
- * published package - see ADR-026 for what that means for Pare's MIT licence.
+ * published package - see ADR-026 for what that means for Pare's licence.
  */
 
 type HeifImage = {

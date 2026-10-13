@@ -1,0 +1,20 @@
+Pare (pare.devstash.me)
+Copyright (c) 2026 Adesh Shukla. All rights reserved.
+
+The source code is public so it can be read and reviewed. Being public does
+not grant a licence to reuse it. You may not copy, modify, redistribute, host
+or build on this source code, in whole or in part, without written permission.
+
+USING THE TOOL
+
+You may use the hosted tool at https://pare.devstash.me freely, including for
+commercial work. The files you put into Pare stay yours, and so does everything
+it produces from them: the optimized files and the generated markup (such as
+<picture> and @font-face snippets). Use them however you like.
+
+THIRD-PARTY SOFTWARE
+
+Pare loads third-party libraries, listed in THIRD_PARTY.md. Each keeps its own
+licence; this notice does not apply to them.
+
+For permission, contact Adesh Shukla through https://devstash.me/contact.

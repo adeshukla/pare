@@ -810,7 +810,7 @@ cannot decode anything natively inside a worker.
   makes the page look different in every non-Safari browser, which the
   before-and-after check cannot fairly compare. Files mode handles it.
 
-**Licence.** libheif and libde265 are LGPL-3.0. Pare (MIT) loads the published,
+**Licence.** libheif and libde265 are LGPL-3.0. Pare loads the published,
 unmodified package as its own separately fetched file, never merged into Pare's
 own code, so it can be replaced; its licence ships with it in `node_modules` and
 is named in `THIRD_PARTY.md`. If that arrangement is ever in doubt, HEIC can be

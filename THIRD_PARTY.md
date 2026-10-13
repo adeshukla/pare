@@ -1,7 +1,8 @@
 # Third-party code
 
-Pare is MIT-licensed. It loads these libraries in the browser; each keeps its own
-licence. Licence texts ship with each package in `node_modules`.
+Pare's own code is all rights reserved (see `LICENSE`). It loads these libraries
+in the browser; each keeps its own licence. Licence texts ship with each package
+in `node_modules`.
 
 | Package | Licence | Loaded |
 |---|---|---|

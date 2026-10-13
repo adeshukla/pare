@@ -118,4 +118,6 @@ is in [`docs/STATUS.md`](docs/STATUS.md).
 
 ## License
 
-MIT
+All rights reserved. The hosted tool is free to use, and everything it produces
+from your files is yours; the source code may not be reused without permission.
+See [`LICENSE`](LICENSE).

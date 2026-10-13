@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Browser-based asset optimizer. No install, no upload, no server.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=20.19.0"
   },
