@@ -374,7 +374,11 @@ function imagesSettled(doc: Document): Promise<unknown> {
   );
 }
 
-const nextFrame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+// A timer, not requestAnimationFrame: a browser stops animation frames in a
+// background tab, and a run must keep going while the user looks elsewhere.
+// Layout is already forced synchronously before this; it only lets the frame
+// apply the new width's media queries and start any images they ask for.
+const nextFrame = () => new Promise((r) => setTimeout(r, 30));
 
 /**
  * Load a page once and look at it at each width in turn, resizing the frame

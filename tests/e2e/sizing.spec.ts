@@ -143,3 +143,20 @@ test('the unused-CSS report lists what matched nothing, and changes nothing', as
   expect(out).toContain('.ghost');
   expect(out).toContain('.missing-child');
 });
+
+test('a whole-site run finishes in a background tab', async ({ page }) => {
+  // A background tab gets no animation frames at all. An earlier build waited
+  // on one between screen widths and hung forever if the user switched tabs -
+  // found on the live site, not by a test. Simulated here by never running them.
+  await page.addInitScript(() => {
+    window.requestAnimationFrame = () => 0;
+  });
+  await drop(page, [
+    { path: 'index.html', text: '<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><img class="t" src="img/photo.jpg" alt=""></body></html>' },
+    { path: 's.css', text: '.t{width:300px;height:auto}' },
+    { path: 'img/photo.jpg', bytes: PHOTO },
+  ]);
+  await page.getByRole('button', { name: /^Optimize the site$/ }).click();
+  await expect(page.getByRole('region', { name: 'Verification' })).toContainText('Checked.', { timeout: 120_000 });
+  await expect(page.getByRole('region', { name: 'Site savings' })).toContainText('1 image scaled down');
+});
