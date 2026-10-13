@@ -160,3 +160,29 @@ test('a whole-site run finishes in a background tab', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Verification' })).toContainText('Checked.', { timeout: 120_000 });
   await expect(page.getByRole('region', { name: 'Site savings' })).toContainText('1 image scaled down');
 });
+
+test('gives images a width and height only where that moves nothing', async ({ page }) => {
+  await drop(page, [
+    {
+      path: 'index.html',
+      text: '<!doctype html><html><head><link rel="stylesheet" href="s.css"></head><body><img class="safe" src="a.jpg" alt=""><img class="stretch" src="b.jpg" alt=""></body></html>',
+    },
+    // .safe: max-width and height:auto, the usual responsive rule - the attributes change nothing.
+    // .stretch: width set, height left to the image; a height attribute would fix it at 800px.
+    { path: 's.css', text: '.safe{max-width:100%;height:auto}.stretch{width:50%}' },
+    { path: 'a.jpg', bytes: PHOTO },
+    { path: 'b.jpg', bytes: PHOTO },
+  ]);
+  await page.getByRole('button', { name: /^Optimize the site$/ }).click();
+  await expect(page.getByRole('region', { name: 'Verification' })).toContainText('Checked.', { timeout: 120_000 });
+  await expect(page.getByRole('region', { name: 'Site savings' })).toContainText('1 image given a width and height');
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download site' }).click(),
+  ]);
+  const zip = unzipSync(new Uint8Array(readFileSync(await downloaded.path())));
+  const html = new TextDecoder().decode(zip['index.html']);
+  expect(html).toMatch(/<img class="safe" src="a\.[0-9a-f]+\.jpg" alt="" width="\d+" height="\d+">/);
+  expect(html).toMatch(/<img class="stretch" src="b\.[0-9a-f]+\.jpg" alt="">/);
+});

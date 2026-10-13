@@ -45,6 +45,12 @@ export function FolderControls({
           onChange={(on) => patch({ rightSize: on })}
         />
         <Toggle
+          label="Give images a width and height"
+          hint="So the page keeps each image's space while it loads instead of jumping. Added only to images that lack both, and only where trying them on, in every page at every width, moves nothing."
+          checked={settings.dimensions}
+          onChange={(on) => patch({ dimensions: on })}
+        />
+        <Toggle
           label="Also offer AVIF and WebP to browsers that read them"
           name="Also offer AVIF and WebP to browsers that read them"
           hint={
@@ -381,6 +387,8 @@ export function FolderSummary({ result }: { result: FolderResult }) {
         <p className="mt-4 max-w-prose text-sm text-muted">
           {result.files.length} files &middot; {result.renamed.size} fingerprinted &middot;{' '}
           {result.rewritten} address{result.rewritten === 1 ? '' : 'es'} updated
+          {result.sized > 0 &&
+            ` · ${result.sized} image${result.sized === 1 ? '' : 's'} given a width and height`}
           {result.locationsRemoved > 0 &&
             ` · location removed from ${result.locationsRemoved} photo${result.locationsRemoved === 1 ? '' : 's'}`}
           {result.resized > 0 &&
