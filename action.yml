@@ -1,0 +1,71 @@
+# Pare as a GitHub Action (ADR-042). The runner opens Pare in its own headless
+# Chromium and hands it the folder - the same engine as the web app, and the
+# files go no further than the runner. The step fails, and writes nothing, if
+# the before-and-after check finds that a page changed.
+#
+#   - uses: adeshukla/pare@master
+#     with:
+#       path: public
+#       out: public-pare
+name: Pare
+description: Shrink a site's images, fonts and code, checked page by page before and after - in the runner's own browser.
+branding:
+  icon: minimize-2
+  color: purple
+
+inputs:
+  path:
+    description: The folder to optimize.
+    required: true
+  out:
+    description: Where to write the result. Must be empty or not exist yet. Defaults to <path>-pare.
+    required: false
+    default: ''
+  url:
+    description: The Pare to run. The public one, or your own build served on the runner.
+    required: false
+    default: https://pare.devstash.me
+  keep-names:
+    description: Set to "true" to keep every filename (no content fingerprints).
+    required: false
+    default: 'false'
+  files:
+    description: Set to "true" to treat the folder as separate files rather than a site.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    # Only what the command needs, in a folder of its own: not the app's codecs.
+    - name: Install the Pare command
+      shell: bash
+      run: |
+        dir="$RUNNER_TEMP/pare-cli"
+        mkdir -p "$dir"
+        cp "$GITHUB_ACTION_PATH/cli/pare.mjs" "$dir/"
+        cd "$dir"
+        echo '{"type":"module","private":true}' > package.json
+        npm install --no-audit --no-fund --silent playwright-core@1.62.1 fflate@0.8.3
+        npx playwright-core install --with-deps chromium
+
+    # Inputs reach the shell as environment variables, never pasted into the
+    # script, so a path cannot inject a command.
+    - name: Optimize
+      shell: bash
+      env:
+        PARE_PATH: ${{ inputs.path }}
+        PARE_OUT: ${{ inputs.out }}
+        PARE_URL: ${{ inputs.url }}
+        PARE_KEEP_NAMES: ${{ inputs.keep-names }}
+        PARE_FILES: ${{ inputs.files }}
+      run: |
+        args=("$PARE_PATH" --url "$PARE_URL")
+        if [ -n "$PARE_OUT" ]; then args+=(--out "$PARE_OUT"); fi
+        if [ "$PARE_KEEP_NAMES" = "true" ]; then args+=(--keep-names); fi
+        if [ "$PARE_FILES" = "true" ]; then args+=(--files); fi
+        node "$RUNNER_TEMP/pare-cli/pare.mjs" "${args[@]}"

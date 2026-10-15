@@ -112,6 +112,13 @@ export default tseslint.config(
   },
 
   {
+    // The command runs in Node and hands functions to page.evaluate, which run
+    // in the page: both sets of names are real here.
+    files: ['cli/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+
+  {
     files: ['public/sw.js'],
     languageOptions: { globals: { ...globals.serviceworker } },
   },

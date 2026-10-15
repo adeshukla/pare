@@ -80,6 +80,32 @@ See [ADR-002](docs/DECISIONS.md#adr-002--css-purging-is-permanently-out-of-scope
 There is no server. No upload, no analytics, no account, no telemetry. After the
 page loads, you can disconnect from the internet and it still works.
 
+## From the command line, or in CI
+
+The same engine, because it is the same app: the command opens Pare in a
+headless Chromium on your machine and hands it the folder. Nothing goes to a
+server. If the before-and-after check finds a page that changed, it writes
+nothing and exits with 1.
+
+```bash
+npm install
+npx playwright install chromium
+node cli/pare.mjs ./public --out ./public-pare
+```
+
+`--keep-names` keeps every filename, `--files` treats the folder as separate
+files rather than a site, and `--url http://localhost:4173` runs your own
+`npm run preview` instead of pare.devstash.me.
+
+As a GitHub Action:
+
+```yaml
+- uses: adeshukla/pare@master
+  with:
+    path: public
+    out: public-pare
+```
+
 ## Development
 
 Node 20.19+ (22 recommended).
