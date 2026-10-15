@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { t } from '../i18n';
 import { download, mainOutput } from '../lib/emit';
 import { bytes, reduction } from '../lib/format';
 import { locationRemoved, measure, type Row } from '../lib/optimize';
@@ -135,9 +136,9 @@ function FileActions({ row }: { row: Row }) {
   const shareable = typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
   return (
     <span className="mt-1.5 flex flex-wrap gap-1.5">
-      <button onClick={() => download(file, file.name)} className="btn btn-sm" aria-label={'Save ' + file.name}>
+      <button onClick={() => download(file, file.name)} className="btn btn-sm" aria-label={t.saveFile(file.name)}>
         <Icon name="download" size={13} />
-        Save
+        {t.save}
       </button>
       {shareable && (
         <button
@@ -147,10 +148,10 @@ function FileActions({ row }: { row: Row }) {
             })
           }
           className="btn btn-sm"
-          aria-label={'Share ' + file.name}
+          aria-label={t.shareFile(file.name)}
         >
           <Icon name="share" size={13} />
-          Share
+          {t.share}
         </button>
       )}
     </span>
@@ -173,7 +174,7 @@ function FileRow({ row, index }: { row: Row; index: number }) {
     row.outcome?.variants.reduce((n, v) => n + v.bytes.byteLength, 0) ??
     row.font?.slices.reduce((n, s) => n + s.bytes.byteLength, 0);
 
-  const status = row.state === 'queued' ? 'waiting' : row.state === 'running' ? row.label : detail;
+  const status = row.state === 'queued' ? t.waiting : row.state === 'running' ? row.label : detail;
 
   return (
     <>
@@ -207,9 +208,9 @@ function FileRow({ row, index }: { row: Row; index: number }) {
               )}
               <span className="mt-0.5 block truncate text-xs text-muted">{status}</span>
               {locationRemoved(row) && (
-                <span className="chip mt-1.5 text-[11px]" title="This photo recorded where it was taken. The files Pare made do not.">
+                <span className="chip mt-1.5 text-[11px]" title={t.locationTitle}>
                   <Icon name="shield" size={12} className="text-saved" />
-                  Location removed
+                  {t.locationRemoved}
                 </span>
               )}
               {row.state === 'done' && <FileActions row={row} />}
@@ -227,8 +228,8 @@ function FileRow({ row, index }: { row: Row; index: number }) {
             </span>
           )}
           {row.state === 'queued' && <span className="ml-auto block h-1.5 w-full max-w-24 rounded-full bg-rule" />}
-          {row.state === 'done' && cut > 0 && <span className="pill-saved pop">{cut}% smaller</span>}
-          {row.state === 'done' && cut === 0 && <span className="text-xs text-muted">no change</span>}
+          {row.state === 'done' && cut > 0 && <span className="pill-saved pop">{t.smaller(cut)}</span>}
+          {row.state === 'done' && cut === 0 && <span className="text-xs text-muted">{t.noChange}</span>}
         </td>
       </tr>
 
@@ -288,10 +289,10 @@ export function Results({ rows }: { rows: Row[] }) {
       <table className="w-full table-fixed text-sm">
         <thead>
           <tr className="border-b border-rule text-left text-xs text-muted">
-            <th className="py-2.5 pr-3 pl-3 font-medium">File</th>
-            <th className="hidden w-[17%] py-2.5 pr-3 text-right font-medium sm:table-cell">Before</th>
-            <th className="w-[22%] sm:w-[17%] py-2.5 pr-3 text-right font-medium">After</th>
-            <th className="w-[28%] sm:w-[22%] py-2.5 pr-3 text-right font-medium">Change</th>
+            <th className="py-2.5 pr-3 pl-3 font-medium">{t.colFile}</th>
+            <th className="hidden w-[17%] py-2.5 pr-3 text-right font-medium sm:table-cell">{t.colBefore}</th>
+            <th className="w-[22%] sm:w-[17%] py-2.5 pr-3 text-right font-medium">{t.colAfter}</th>
+            <th className="w-[28%] sm:w-[22%] py-2.5 pr-3 text-right font-medium">{t.colChange}</th>
           </tr>
         </thead>
         <tbody>

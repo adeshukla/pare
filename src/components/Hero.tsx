@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { t } from '../i18n';
 import { Icon, type IconName } from './Visuals';
 
 /**
@@ -124,38 +125,30 @@ function SiteArt() {
   );
 }
 
+const TILES = [
+  ['image', <ImageArt key="a" />],
+  ['type', <FontArt key="a" />],
+  ['code', <CodeArt key="a" />],
+  ['layers', <SiteArt key="a" />],
+] as const;
+
 export function Features() {
   return (
     <section aria-labelledby="what-pare-does" className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <h2 id="what-pare-does" className="sr-only">
-        What Pare does
+        {t.whatPareDoes}
       </h2>
-      <Tile icon="image" title="Images" art={<ImageArt />} index={0}>
-        AVIF, WebP and an optimized original at every width you choose — plus the{' '}
-        <code className="font-mono text-xs">&lt;picture&gt;</code> tag to paste.
-      </Tile>
-      <Tile icon="type" title="Fonts" art={<FontArt />} index={1}>
-        Split by script so pages load only what they need, or cut to the characters you
-        use. WOFF2 and <code className="font-mono text-xs">@font-face</code> included.
-      </Tile>
-      <Tile icon="code" title="Code" art={<CodeArt />} index={2}>
-        CSS, JavaScript, HTML and SVG minified. Rewritten, never removed — nothing that
-        worked can stop working.
-      </Tile>
-      <Tile icon="layers" title="Whole sites" art={<SiteArt />} index={3}>
-        Drop a folder: every file shrinks in place, and every page is rendered before and
-        after before you can download it.
-      </Tile>
+      {TILES.map(([icon, art], i) => (
+        <Tile key={icon} icon={icon} title={t.features[i]![0]} art={art} index={i}>
+          {t.features[i]![1]}
+        </Tile>
+      ))}
     </section>
   );
 }
 
 export function Steps() {
-  const steps: Array<[string, string]> = [
-    ['Drop', 'A folder, some files, or a pasted screenshot.'],
-    ['Tune', 'Every option is a switch, with its cost shown before you run.'],
-    ['Take it', 'A zip, a folder, and the markup to paste.'],
-  ];
+  const steps = t.steps;
   return (
     <ol className="mt-14 grid gap-6 sm:grid-cols-3">
       {steps.map(([title, text], i) => (

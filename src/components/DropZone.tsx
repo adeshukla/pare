@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { t } from '../i18n';
 import { takeSharedFiles } from '../offline';
 import { canPickDirectory, fromDataTransfer, fromFileList, MAX_FILES, pickDirectory } from '../lib/ingest';
 import { expandZips } from '../lib/unzip';
@@ -51,7 +52,7 @@ export function DropZone({
       const assets = await fromFileList([new File([blob], 'sample-photo.jpg', { type: 'image/jpeg' })]);
       handler.current(assets, [], true);
     } catch {
-      handler.current([], ['The sample could not be loaded. Try again once you are online.']);
+      handler.current([], [t.sampleFailed]);
     } finally {
       setBusy(false);
     }
@@ -122,7 +123,7 @@ export function DropZone({
           className={`btn btn-primary ${compact ? 'btn-sm' : 'btn-lg'}`}
         >
           <Icon name="folder" size={compact ? 15 : 18} />
-          Choose a folder
+          {t.chooseFolder}
         </button>
       )}
       <button
@@ -130,7 +131,7 @@ export function DropZone({
         className={`btn ${compact ? 'btn-sm' : 'btn-lg'} ${canPickDirectory() ? '' : 'btn-primary'}`}
       >
         <Icon name="upload" size={compact ? 15 : 18} />
-        Choose files
+        {t.chooseFiles}
       </button>
     </div>
   );
@@ -148,8 +149,8 @@ export function DropZone({
                 <Icon name="upload" size={34} />
               </span>
             </span>
-            <p className="text-xl font-semibold">Drop to add these files</p>
-            <p className="text-sm text-muted">They stay in this tab.</p>
+            <p className="text-xl font-semibold">{t.dropOverlay}</p>
+            <p className="text-sm text-muted">{t.dropOverlaySub}</p>
           </div>
         </div>
       )}
@@ -158,7 +159,7 @@ export function DropZone({
         <div className="drop-zone flex flex-wrap items-center justify-between gap-3 px-4 py-3" data-over={over}>
           <p className="flex items-center gap-3 text-sm text-muted">
             <Icon name="upload" size={16} />
-            {busy ? 'Reading files…' : 'Drop, paste or choose more files to start again'}
+            {busy ? t.reading : t.dropMore}
           </p>
           {buttons}
         </div>
@@ -184,10 +185,10 @@ export function DropZone({
             </span>
           </div>
           <p className="text-xl font-semibold tracking-tight">
-            {busy ? 'Reading files…' : 'Drop a folder or files here'}
+            {busy ? t.reading : t.dropHere}
           </p>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted">
-            Or a .zip, or paste an image. Nothing is uploaded — everything runs in this browser tab.
+            {t.dropHint}
           </p>
           {buttons}
           <button
@@ -195,7 +196,7 @@ export function DropZone({
             disabled={busy}
             className="mt-4 cursor-pointer text-sm font-medium text-accent underline-offset-4 hover:underline"
           >
-            No file to hand? Try it with a sample photo
+            {t.trySample}
           </button>
         </div>
       )}

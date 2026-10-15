@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { TASKS } from './src/tasks';
+import { LANGS, TASKS, homePath, taskPath } from './src/tasks';
 
 type HeaderRule = { pattern: RegExp; set: Array<[string, string]>; detach: string[] };
 
@@ -105,10 +105,13 @@ export default defineConfig({
     manifest: true,
     // The task pages (ADR-035) are the same app under their own addresses.
     rolldownOptions: {
-      input: {
-        main: 'index.html',
-        ...Object.fromEntries(TASKS.map((t) => [t.slug, `tools/${t.slug}/index.html`])),
-      },
+      // Every generated page, in every language (ADR-041), keyed by its address.
+      input: Object.fromEntries(
+        LANGS.flatMap((lang) => [homePath(lang), ...TASKS.map((t) => taskPath(t, lang))]).map((path) => [
+          path === '/' ? 'main' : path.replace(/^\/|\/$/g, '').replace(/\//g, '-'),
+          path === '/' ? 'index.html' : path.slice(1) + 'index.html',
+        ]),
+      ),
     },
   },
 

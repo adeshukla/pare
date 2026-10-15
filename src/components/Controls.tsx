@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import {
   DEFAULT_WIDTHS,
   FORMAT_LABEL,
@@ -289,28 +290,28 @@ function ImageControls({
             value={settings.output}
             onChange={(output: ImageSettings['output']) => patch({ output })}
             options={[
-              { value: 'responsive', label: 'Responsive set' },
-              { value: 'single', label: 'One size' },
-              { value: 'target', label: 'Under a size' },
-              { value: 'icons', label: 'App icons' },
+              { value: 'responsive', label: t.outputResponsive },
+              { value: 'single', label: t.outputSingle },
+              { value: 'target', label: t.outputTarget },
+              { value: 'icons', label: t.outputIcons },
             ]}
           />
           <span className="mt-1.5 block text-xs text-muted">
             {settings.output === 'responsive'
-              ? 'Several widths, and markup that lets each screen download the one it needs.'
+              ? t.hintResponsive
               : settings.output === 'single'
-                ? 'One file per format at the size you set. For a thumbnail, an avatar, or an image you place yourself.'
+                ? t.hintSingle
                 : settings.output === 'target'
-                  ? 'One file per format, each at or under a file size - for an upload form, an email or a chat.'
-                  : 'favicon.ico, the Apple touch icon, the icons an installed site uses, a maskable one for Android, and the manifest and tags that list them - from one square-ish picture, 512px or larger.'}
+                  ? t.hintTarget
+                  : t.hintIcons}
           </span>
         </div>
 
         {settings.output === 'icons' ? null : settings.output === 'target' ? (
           <div className="rise grid gap-3">
             <div>
-              <span className="text-sm font-medium">Every file at or under</span>
-              <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Common size limits">
+              <span className="text-sm font-medium">{t.everyFileUnder}</span>
+              <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={t.sizeLimits}>
                 {TARGET_PRESETS.map(([label, value]) => (
                   <button
                     key={value}
@@ -329,7 +330,7 @@ function ImageControls({
               </div>
             </div>
             <label className="block text-sm font-medium">
-              Or any size, in KB
+              {t.anySize}
               <input
                 key={settings.targetKb}
                 type="number"
@@ -343,11 +344,7 @@ function ImageControls({
                 className="field"
               />
             </label>
-            <span className="text-xs text-muted">
-              Pare lowers quality first and makes the picture smaller only if it has to, then tells
-              you what it changed. A photo without transparency comes out as JPEG, which is what
-              most upload forms ask for.
-            </span>
+            <span className="text-xs text-muted">{t.targetExplain}</span>
           </div>
         ) : settings.output === 'single' ? (
           <div className="rise grid gap-3">

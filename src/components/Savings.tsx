@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { t } from '../i18n';
 import { bytes, reduction } from '../lib/format';
 import { REPORT_LABEL, type Report, type ReportKind } from '../lib/optimize';
 import { SavingBars } from './FolderPanel';
@@ -25,9 +26,9 @@ export function FilesSavings({ report, children }: { report: Report; children: R
   const total = report.lines.reduce((n, l) => n + l.served, 0) || 1;
 
   return (
-    <section className="card rise mt-4 overflow-hidden" aria-label="Savings">
+    <section className="card rise mt-4 overflow-hidden" aria-label={t.savingsLabel}>
       <div className="p-6">
-        <p className="eyebrow">What a visitor downloads</p>
+        <p className="eyebrow">{t.visitorDownloads}</p>
         <p className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-[family-name:var(--font-display)] text-4xl font-bold tracking-tight sm:text-5xl">
           <span className="tnum text-muted">{bytes(report.bytesBefore)}</span>
           <span className="text-muted" aria-hidden="true">→</span>
@@ -36,7 +37,7 @@ export function FilesSavings({ report, children }: { report: Report; children: R
           </span>
           {cut > 0 && (
             <span className="relative">
-              <span className="pill-saved pop px-3 py-1 text-base">{cut}% smaller</span>
+              <span className="pill-saved pop px-3 py-1 text-base">{t.smaller(cut)}</span>
               {cut >= 20 && <Burst />}
             </span>
           )}
@@ -44,12 +45,7 @@ export function FilesSavings({ report, children }: { report: Report; children: R
 
         <SavingBars before={report.bytesBefore} after={report.bytesServed} />
 
-        <p className="mt-4 max-w-prose text-sm text-muted">
-          For images the smallest full-size format their browser reads, for split fonts the first
-          file only, for code the smallest compressed copy. The zip holds{' '}
-          <span className="tnum">{bytes(report.bytesEmitted)}</span> across every variant — nobody
-          downloads all of it.
-        </p>
+        <p className="mt-4 max-w-prose text-sm text-muted">{t.savingsExplain(bytes(report.bytesEmitted))}</p>
       </div>
 
       {report.lines.length > 1 && (
@@ -97,16 +93,13 @@ export function FilesSavings({ report, children }: { report: Report; children: R
       {report.locationsRemoved > 0 && (
         <p className="flex items-center gap-2 border-t border-rule px-6 py-3 text-sm">
           <Icon name="shield" size={15} className="flex-none text-saved" />
-          {report.locationsRemoved === 1
-            ? 'One photo held the place it was taken. That location is not in the file you download.'
-            : `${report.locationsRemoved} photos held the place they were taken. Those locations are not in the files you download.`}
+          {t.locationsRemoved(report.locationsRemoved)}
         </p>
       )}
 
       {report.skipped > 0 && (
         <p className="border-t border-rule px-6 py-3 text-sm text-warn">
-          {report.skipped} file{report.skipped === 1 ? ' was' : 's were'} left unchanged. The reason
-          is on the row.
+          {t.skippedNote(report.skipped)}
         </p>
       )}
 
