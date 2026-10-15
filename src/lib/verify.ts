@@ -268,6 +268,8 @@ const LAYOUT_RESOLVED = new Set([
   'aspect-ratio',
 ]);
 
+const MIN_SIZE = new Set(['min-width', 'min-height', 'min-inline-size', 'min-block-size']);
+
 function fingerprint(doc: Document, page: string, viewport: number): PageSnapshot {
   const boxes: ElementBox[] = [];
   const failed: string[] = [];
@@ -301,7 +303,12 @@ function fingerprint(doc: Document, page: string, viewport: number): PageSnapsho
           // a tolerance.
           if (LAYOUT_RESOLVED.has(name)) continue;
           // Addresses are blob URLs that differ on each side by construction.
-          props.push(name + ':' + computed.getPropertyValue(name).replace(/url\([^)]*\)/g, 'url()'));
+          let value = computed.getPropertyValue(name).replace(/url\([^)]*\)/g, 'url()');
+          // Firefox reports an image's automatic minimum size as 'auto' once it
+          // has an aspect ratio (ADR-037's width and height give it one) and as
+          // '0px' before; for an image the two are the same size.
+          if (MIN_SIZE.has(name) && value === 'auto') value = '0px';
+          props.push(name + ':' + value);
         }
         box.style = props.join(';');
       }

@@ -152,8 +152,15 @@ export default function App() {
   }, []);
 
   async function runFiles() {
+    // Progress reaches here on a different channel from results, so a late
+    // progress report can arrive after a file has finished. It must not
+    // un-finish it - Firefox does deliver them in that order.
     const update = (index: number, patch: Partial<Row>) =>
-      setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+      setRows((prev) =>
+        prev.map((r, i) =>
+          i !== index ? r : r.state === 'done' && patch.state !== 'done' ? r : { ...r, ...patch },
+        ),
+      );
     const done = await optimizeAssets(
       rows.map((r) => r.asset),
       settings,
@@ -175,7 +182,8 @@ export default function App() {
       (path, ratio, label) =>
         setRows((prev) =>
           prev.map((r) =>
-            r.asset.path === path
+            // As in runFiles: a late progress report never un-finishes a file.
+            r.asset.path === path && r.state !== 'done'
               ? { ...r, state: ratio >= 1 ? 'done' : 'running', progress: ratio, label }
               : r,
           ),
