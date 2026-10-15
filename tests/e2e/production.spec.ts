@@ -24,7 +24,36 @@ test('the production build optimizes a photo', async ({ page, browserName }) => 
  * page copies and the offline worker. A refused codec would show up twice: as
  * a console report, and as files that come back skipped.
  */
-test('the security policy refuses nothing Pare does', async ({ page }) => {
+/**
+ * The one codec whose worker needs the /assets/ policy's 'unsafe-eval' (the
+ * WOFF2 glue), with the minifiers, on its own - so every engine shows that a
+ * worker runs under its own script's policy, not the page's.
+ */
+test('fonts and code run under the security policy', async ({ page }) => {
+  test.setTimeout(200_000);
+  const refused: string[] = [];
+  page.on('console', (m) => {
+    if (/Content.Security.Policy|Refused to/i.test(m.text())) refused.push(m.text());
+  });
+  page.on('pageerror', (e) => refused.push(e.message));
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles([
+    'tests/fixtures/fonts/plex-mono.woff2',
+    'tests/fixtures/text/site.css',
+    'tests/fixtures/text/app.js',
+    'tests/fixtures/text/logo.svg',
+  ]);
+  await page.getByRole('button', { name: 'Optimize 4 files' }).click();
+  await expect(page.getByLabel('Savings')).toBeVisible({ timeout: 180_000 });
+  await expect(page.getByText(/could not|Could not/)).toHaveCount(0);
+  expect(refused).toEqual([]);
+});
+
+test('the security policy refuses nothing Pare does', async ({ page, browserName }) => {
+  // Ten mixed files at once stall in WebKit on the build machine at "Decoding",
+  // with this policy and without it alike - a WebKit load problem, not the
+  // policy, which the tests above cover there. Open in STATUS.md.
+  test.fixme(browserName === 'webkit', 'ten files at once stall in WebKit, with or without the policy');
   test.setTimeout(300_000);
   const refused: string[] = [];
   page.on('console', (m) => {
