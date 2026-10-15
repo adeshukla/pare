@@ -1,5 +1,6 @@
 import * as Comlink from 'comlink';
 import { hasGpsLocation, isAnimatedGif } from './metadata';
+import { ICON_SNIPPET } from './icons';
 import { needsFor } from './needs';
 import { poolSize, runAll } from './pool';
 import { defaultImgWidth } from './ladder';
@@ -234,6 +235,7 @@ export function summarise(rows: Row[]): Report {
 
 function imageSnippet(outcome: ImageOutcome, settings: ImageSettings): string | undefined {
   if (outcome.variants.length === 0) return undefined;
+  if (settings.output === 'icons') return ICON_SNIPPET;
   const widths = [...new Set(outcome.variants.map((v) => v.width))].sort((a, b) => a - b);
   const imgWidth = defaultImgWidth(widths);
   const fallbacks = outcome.variants.filter((v) => v.format === 'fallback');
@@ -321,9 +323,15 @@ export async function optimizeAssets(
   // Width slices per format: as many as idle workers allow, at most three
   // (a ladder has five or six widths).
   const slices = split ? Math.max(1, Math.min(3, Math.floor(poolSize / Math.max(1, images * enabled.length)))) : 1;
-  // An animation is converted as a whole (ADR-038), so it is never split.
+  // An animation is converted as a whole (ADR-038), and an icon set is made
+  // from one picture (ADR-039), so neither is split.
   const splittable = (asset: Asset) =>
-    asset.kind === 'image' && split && !(asset.mime === 'image/gif' && isAnimatedGif(asset.bytes));
+    asset.kind === 'image' &&
+    split &&
+    settings.image.output !== 'icons' &&
+    !(asset.mime === 'image/gif' && isAnimatedGif(asset.bytes));
+  // One icon set per run: its files have fixed names, and a second would overwrite the first.
+  const iconSource = settings.image.output === 'icons' ? assets.find((a) => a.kind === 'image') : undefined;
   const jobs: Job[] = assets.flatMap((asset, index): Job[] =>
     splittable(asset)
       ? enabled.flatMap((format, f) =>
@@ -377,6 +385,21 @@ export async function optimizeAssets(
       rows[index] = row;
       onUpdate(index, row);
     };
+
+    if (asset.kind === 'image' && iconSource && asset !== iconSource) {
+      return done({
+        outcome: {
+          inputPath: asset.path,
+          bytesBefore: asset.bytes.byteLength,
+          naturalWidth: 0,
+          naturalHeight: 0,
+          variants: [],
+          metadataRemoved: 0,
+          warnings: [],
+          skipped: `One icon set is made at a time, and this run's comes from ${iconSource.path}. Drop this picture on its own to make icons from it.`,
+        },
+      });
+    }
 
     if (asset.kind === 'image') {
       const single = format

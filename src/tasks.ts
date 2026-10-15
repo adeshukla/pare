@@ -95,6 +95,16 @@ export const TASKS: Task[] = [
       formats: { avif: true, webp: false, fallback: false },
     },
   },
+  {
+    slug: 'make-favicon',
+    name: 'Make a favicon',
+    title: 'Make a favicon and app icons from one image — Pare',
+    description:
+      'favicon.ico, the Apple touch icon, Android and maskable icons, the web manifest and the tags to paste, from one picture. In your browser, nothing uploaded.',
+    heading: ['Make a', 'favicon.'],
+    lede: 'Drop a logo or a picture and get every icon a site needs — favicon.ico, Apple touch icon, Android and maskable icons — plus the manifest and the tags to paste. Nothing is uploaded.',
+    image: { output: 'icons' },
+  },
 ];
 
 export const SITE = 'https://pare.devstash.me';

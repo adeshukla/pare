@@ -235,6 +235,12 @@ function ImageControls({
           />
         </div>
         <p className="eyebrow mb-1">Formats</p>
+        {settings.output === 'icons' && (
+          <p className="mb-2 text-xs text-muted">
+            Icons are always PNG (and one .ico), which every browser and phone reads, so these
+            settings do not apply to them.
+          </p>
+        )}
         {FORMATS.map((format) => (
           <div key={format} className="border-b border-rule pb-3 last:border-0">
             <Toggle
@@ -286,6 +292,7 @@ function ImageControls({
               { value: 'responsive', label: 'Responsive set' },
               { value: 'single', label: 'One size' },
               { value: 'target', label: 'Under a size' },
+              { value: 'icons', label: 'App icons' },
             ]}
           />
           <span className="mt-1.5 block text-xs text-muted">
@@ -293,11 +300,13 @@ function ImageControls({
               ? 'Several widths, and markup that lets each screen download the one it needs.'
               : settings.output === 'single'
                 ? 'One file per format at the size you set. For a thumbnail, an avatar, or an image you place yourself.'
-                : 'One file per format, each at or under a file size - for an upload form, an email or a chat.'}
+                : settings.output === 'target'
+                  ? 'One file per format, each at or under a file size - for an upload form, an email or a chat.'
+                  : 'favicon.ico, the Apple touch icon, the icons an installed site uses, a maskable one for Android, and the manifest and tags that list them - from one square-ish picture, 512px or larger.'}
           </span>
         </div>
 
-        {settings.output === 'target' ? (
+        {settings.output === 'icons' ? null : settings.output === 'target' ? (
           <div className="rise grid gap-3">
             <div>
               <span className="text-sm font-medium">Every file at or under</span>

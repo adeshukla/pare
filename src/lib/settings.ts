@@ -30,7 +30,7 @@ export type ImageSettings = {
    * 'responsive' makes every width on the ladder; 'single' makes one size,
    * for "I just want this 800px wide" or a square thumbnail.
    */
-  output: 'responsive' | 'single' | 'target';
+  output: 'responsive' | 'single' | 'target' | 'icons';
   /** For output 'target': every file must come out at or under this many KB. */
   targetKb: number;
   single: {

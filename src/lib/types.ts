@@ -132,6 +132,8 @@ export type ImageOutcome = {
   skipped?: string;
   /** A width slice that had no widths to encode: contributes nothing when merged. */
   empty?: boolean;
+  /** Files that go with the images but are not images - an icon set's manifest. */
+  extras?: Array<{ path: string; bytes: Uint8Array }>;
 };
 
 /* ------------------------------------------------------------------ *

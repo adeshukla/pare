@@ -64,5 +64,5 @@ test('a task page has its own words and starts from its own settings', async ({ 
   await expect(page.getByRole('radio', { name: 'Responsive set' })).toBeChecked();
 
   // And every task page links to the others.
-  await expect(page.getByRole('navigation', { name: 'Tools' }).getByRole('link')).toHaveCount(5);
+  await expect(page.getByRole('navigation', { name: 'Tools' }).getByRole('link')).toHaveCount(6);
 });

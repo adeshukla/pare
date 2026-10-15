@@ -24,4 +24,8 @@
     <loc>https://pare.devstash.me/tools/convert-to-avif/</loc>
     <changefreq>monthly</changefreq>
   </url>
+  <url>
+    <loc>https://pare.devstash.me/tools/make-favicon/</loc>
+    <changefreq>monthly</changefreq>
+  </url>
 </urlset>

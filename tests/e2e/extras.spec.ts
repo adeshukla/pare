@@ -126,3 +126,41 @@ test('JSON and XML lose their indentation and nothing else', async ({ page }) =>
   expect(strFromU8(zip['app.webmanifest']!)).toBe('{"name":"Pare","icons":[{"src":"/a b.png"}]}');
   expect(strFromU8(zip['sitemap.xml']!)).toBe('<?xml version="1.0"?><urlset><url><loc>https://a.example/</loc></url></urlset>');
 });
+
+test('one picture makes a whole icon set', async ({ page }) => {
+  test.setTimeout(150_000);
+  await page.goto('/tools/make-favicon/');
+  await page.locator('input[type=file]').setInputFiles('tests/fixtures/photo.jpg'); // 1200×800
+  await expect(page.getByRole('radio', { name: 'App icons' })).toBeChecked();
+  await page.getByRole('button', { name: 'Optimize 1 file' }).click();
+  await expect(page.getByLabel('Savings')).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText(/the middle 800×800 of this 1200×800 picture was used/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'photo.jpg', exact: true }).click();
+  await expect(page.locator('pre').first()).toContainText('<link rel="manifest" href="/manifest.webmanifest">');
+
+  const [file] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download zip' }).click(),
+  ]);
+  const { readFileSync } = await import('node:fs');
+  const { unzipSync, strFromU8 } = await import('fflate');
+  const zip = unzipSync(new Uint8Array(readFileSync(await file.path())));
+  for (const name of ['favicon.ico', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'manifest.webmanifest']) {
+    expect(zip[name], name).toBeDefined();
+  }
+  const ico = zip['favicon.ico']!;
+  expect(new DataView(ico.buffer, ico.byteOffset).getUint16(4, true)).toBe(3);
+  expect(JSON.parse(strFromU8(zip['manifest.webmanifest']!)).name).toBe('photo');
+
+  const sizes = await page.evaluate(async (files) => {
+    const out: number[][] = [];
+    for (const b64 of files) {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      out.push([bitmap.width, bitmap.height]);
+    }
+    return out;
+  }, ['apple-touch-icon.png', 'icon-192.png', 'icon-maskable-512.png'].map((n) => Buffer.from(zip[n]!).toString('base64')));
+  expect(sizes).toEqual([[180, 180], [192, 192], [512, 512]]);
+});
