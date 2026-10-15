@@ -96,6 +96,34 @@ jobs:
           path: playwright-report
           retention-days: 7
 
+  # ADR-042: the Action (action.yml) on the test site, against this commit's
+  # own build, so the command and the Action are checked on every push.
+  action:
+    name: The GitHub Action, on the test site
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist
+
+      - name: Serve this build
+        run: |
+          python3 -m http.server 4173 --directory dist > /dev/null 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 0.5; done
+
+      - uses: ./
+        with:
+          path: tests/fixtures/site
+          out: ${{ runner.temp }}/site-pare
+          url: http://localhost:4173
+
+      - name: The result is a site
+        run: test -f "$RUNNER_TEMP/site-pare/index.html" && ls -R "$RUNNER_TEMP/site-pare"
+
   deploy:
     name: Deploy to Cloudflare Pages
     needs: [verify, e2e]
