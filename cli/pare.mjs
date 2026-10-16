@@ -182,12 +182,12 @@ async function main() {
 
     const zip = unzipSync(new Uint8Array(readFileSync(zipPath)));
     let written = 0;
-    // The folder's own name is the first level inside the zip; --out replaces it.
-    const names = Object.keys(zip).filter((n) => !n.endsWith('/'));
-    const strip = names.every((n) => n.startsWith(top + '/')) ? top.length + 1 : 0;
+    // The folder's own name is the first level inside the zip; --out replaces
+    // it. (Files mode adds snippets.html beside that level, at the top.)
     for (const [name, bytes] of Object.entries(zip)) {
       if (name.endsWith('/')) continue;
-      const target = join(outDir, ...name.slice(strip).split('/'));
+      const inner = name.startsWith(top + '/') ? name.slice(top.length + 1) : name;
+      const target = join(outDir, ...inner.split('/'));
       if (!target.startsWith(outDir + sep)) continue; // never outside the output folder
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, bytes);
