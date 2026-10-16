@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  hasGpsLocation,
   hasNonDefaultOrientation,
   stripJpeg,
   stripMetadata,
@@ -196,3 +197,16 @@ function indexOfSequence(haystack: Uint8Array, needle: number[]): number {
   }
   return -1;
 }
+
+describe('hasGpsLocation', () => {
+  it('finds a GPS position in EXIF', () => {
+    expect(hasGpsLocation(fixture('gps.jpg'))).toBe(true);
+  });
+  it('is false with no EXIF, or EXIF without GPS', () => {
+    expect(hasGpsLocation(fixture('photo.jpg'))).toBe(false);
+    expect(hasGpsLocation(injectAfterSoi(fixture('photo.jpg'), exifApp1(6)))).toBe(false);
+  });
+  it('is false once the metadata is stripped', () => {
+    expect(hasGpsLocation(stripJpeg(fixture('gps.jpg')).bytes)).toBe(false);
+  });
+});

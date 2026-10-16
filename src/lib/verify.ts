@@ -263,7 +263,12 @@ const LAYOUT_RESOLVED = new Set([
   'block-size',
   'transform-origin',
   'perspective-origin',
+  // Width and height attributes on an image map to this (ADR-037). Its only
+  // effect is on the image's box, which the geometry check compares.
+  'aspect-ratio',
 ]);
+
+const MIN_SIZE = new Set(['min-width', 'min-height', 'min-inline-size', 'min-block-size']);
 
 function fingerprint(doc: Document, page: string, viewport: number): PageSnapshot {
   const boxes: ElementBox[] = [];
@@ -298,7 +303,12 @@ function fingerprint(doc: Document, page: string, viewport: number): PageSnapsho
           // a tolerance.
           if (LAYOUT_RESOLVED.has(name)) continue;
           // Addresses are blob URLs that differ on each side by construction.
-          props.push(name + ':' + computed.getPropertyValue(name).replace(/url\([^)]*\)/g, 'url()'));
+          let value = computed.getPropertyValue(name).replace(/url\([^)]*\)/g, 'url()');
+          // Firefox reports an image's automatic minimum size as 'auto' once it
+          // has an aspect ratio (ADR-037's width and height give it one) and as
+          // '0px' before; for an image the two are the same size.
+          if (MIN_SIZE.has(name) && value === 'auto') value = '0px';
+          props.push(name + ':' + value);
         }
         box.style = props.join(';');
       }
@@ -633,6 +643,14 @@ export type ImageMeasure = {
   needed: number;
   /** The image's own width, as the browser decoded it. */
   natural: number;
+  naturalHeight: number;
+  /** Some appearance has neither a width nor a height attribute (ADR-037). */
+  dimsMissing?: boolean;
+  /**
+   * Adding width and height to some appearance moved or resized it - its CSS
+   * sets one side and leaves the other to the image. Then none get them.
+   */
+  dimsUnsafe?: boolean;
   /**
    * Set when any appearance could not be measured or does not let Pare decide
    * the size: it did not load, it sits in a <picture>, or it has a srcset.
@@ -663,7 +681,7 @@ export async function measureImages(
   const pathOf = new Map([...minted.urls].map(([path, url]) => [url, path]));
 
   const note = (path: string, update: (m: ImageMeasure) => void) => {
-    const m = out.get(path) ?? { needed: 0, natural: 0 };
+    const m = out.get(path) ?? { needed: 0, natural: 0, naturalHeight: 0 };
     update(m);
     out.set(path, m);
   };
@@ -693,8 +711,28 @@ export async function measureImages(
             if (shown <= 0) continue;
             note(path, (m) => {
               m.natural = img.naturalWidth;
+              m.naturalHeight = img.naturalHeight;
               m.needed = Math.max(m.needed, Math.ceil(shown * dpr));
             });
+            // ADR-037: would width and height attributes change this box? Try
+            // them on this copy, compare, and take them off again.
+            if (!img.hasAttribute('width') && !img.hasAttribute('height')) {
+              const was = img.getBoundingClientRect();
+              img.setAttribute('width', String(img.naturalWidth));
+              img.setAttribute('height', String(img.naturalHeight));
+              const now = img.getBoundingClientRect();
+              img.removeAttribute('width');
+              img.removeAttribute('height');
+              const moved =
+                Math.abs(was.width - now.width) > 0.5 ||
+                Math.abs(was.height - now.height) > 0.5 ||
+                Math.abs(was.x - now.x) > 0.5 ||
+                Math.abs(was.y - now.y) > 0.5;
+              note(path, (m) => {
+                m.dimsMissing = true;
+                if (moved) m.dimsUnsafe = true;
+              });
+            }
           }
         });
       }

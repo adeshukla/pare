@@ -184,3 +184,28 @@ export function wrapImages(
 
   return { text: applyEdits(html, edits), wrapped, skipped };
 }
+
+/**
+ * Add `width` and `height` to each `<img>` that has neither and shows an
+ * image in `sizes` (ADR-037). Inserted just before the tag closes; every byte
+ * already written stays as it was (ADR-015).
+ */
+export function addDimensions(
+  html: string,
+  pagePath: string,
+  sizes: Map<string, { width: number; height: number }>,
+  exists: (path: string) => boolean,
+): { text: string; added: number } {
+  const edits: Edit[] = [];
+  for (const img of scanHtml(html).imgs) {
+    if ('width' in img.attrs || 'height' in img.attrs || img.attrs.src === undefined) continue;
+    const target = classifyRef(decodeEntities(img.attrs.src).trim(), pagePath, exists);
+    const size = target.resolvable && target.target ? sizes.get(target.target) : undefined;
+    if (!size) continue;
+    const tag = html.slice(img.start, img.end);
+    const at = img.end - (tag.endsWith('/>') ? 2 : 1);
+    const gap = /\s$/.test(html.slice(img.start, at)) ? '' : ' ';
+    edits.push({ start: at, end: at, text: `${gap}width="${size.width}" height="${size.height}"${tag.endsWith('/>') ? ' ' : ''}` });
+  }
+  return { text: applyEdits(html, edits), added: edits.length };
+}

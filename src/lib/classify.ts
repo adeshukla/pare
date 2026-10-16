@@ -57,6 +57,12 @@ const BY_EXT: Record<string, { kind: AssetKind; mime: string }> = {
   mjs: { kind: 'js', mime: 'text/javascript' },
   html: { kind: 'html', mime: 'text/html' },
   htm: { kind: 'html', mime: 'text/html' },
+  json: { kind: 'json', mime: 'application/json' },
+  webmanifest: { kind: 'json', mime: 'application/manifest+json' },
+  geojson: { kind: 'json', mime: 'application/geo+json' },
+  xml: { kind: 'xml', mime: 'application/xml' },
+  rss: { kind: 'xml', mime: 'application/rss+xml' },
+  atom: { kind: 'xml', mime: 'application/atom+xml' },
 };
 
 /**
@@ -69,11 +75,19 @@ const TEMPLATE_EXT = new Set([
   'mustache', 'tpl', 'ejs', 'jinja', 'jinja2', 'j2', 'latte', 'cshtml', 'aspx', 'jsp', 'gohtml',
 ]);
 
+/**
+ * 'II*\0' or 'MM\0*'. Only with a .tif or .tiff name: camera RAW files (CR2,
+ * NEF, DNG) are TIFF inside, and decoding one would give its small preview.
+ */
+const isTiff = (b: Uint8Array) =>
+  (ascii(b, 0, 'II') && at(b, 2) === 42 && at(b, 3) === 0) || (ascii(b, 0, 'MM') && at(b, 2) === 0 && at(b, 3) === 42);
+
 export function classify(path: string, bytes: Uint8Array): { kind: AssetKind; mime: string } {
   for (const sig of SIGNATURES) {
     if (sig.test(bytes)) return { kind: sig.kind, mime: sig.mime };
   }
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  if ((ext === 'tif' || ext === 'tiff') && isTiff(bytes)) return { kind: 'image', mime: 'image/tiff' };
   if (TEMPLATE_EXT.has(ext)) return { kind: 'template', mime: 'text/plain' };
   return BY_EXT[ext] ?? { kind: 'other', mime: 'application/octet-stream' };
 }

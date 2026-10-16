@@ -11,8 +11,8 @@ Updated: 2026-10-13
 | **Phase 4 — Folder mode** | ✅ complete (critical CSS not shipped — ADR-018) |
 | **Phase 5 — Verification** | ✅ complete (web-vitals not shipped — ADR-019) |
 | Live at | **https://pare.devstash.me** (also https://pare-3sm.pages.dev) — production from `098a02d` (2026-10-13), deployed with `wrangler pages deploy`. |
-| Initial JS | **106.8 KB gzipped** of a 150 KB budget |
-| Tests | 246 unit (Vitest) + 94 browser tests × Chromium, Firefox, WebKit on the dev server, plus the built site with production headers (offline and the share target in Chromium, a photo in all three engines) — all passing; 4 skips where an engine cannot synthesise a drop or paste |
+| Initial JS | **123.6 KB gzipped** of a 150 KB budget |
+| Tests | 269 unit (Vitest) + 110 browser tests × Chromium, Firefox, WebKit on the dev server, plus the built site with production headers (offline and the share target in Chromium, a photo in all three engines) — all passing, except one test marked `fixme` in WebKit (see Known gaps); 4 skips where an engine cannot synthesise a drop or paste |
 
 > **Phases 2 through 5 were built ahead of the Phase 1 launch gate**, at the
 > project owner's direction. The gate that was **not** relaxed is the one that
@@ -205,7 +205,9 @@ motion language · ADR-026 HEIC and BMP · ADR-027 server templates and
 WordPress · ADR-028 minification levels, maps and browser ranges · ADR-029 zip input · ADR-030
 right-sized images · ADR-031 unused-CSS report · ADR-032 big images in parallel ·
 ADR-033 each codec fetched once · ADR-034 under a size · ADR-035 task pages ·
-ADR-036 Save, Share and the share target
+ADR-036 Save, Share and the share target · ADR-037 width and height on images · ADR-038 TIFF,
+animated WebP, JSON and XML · ADR-039 icon sets · ADR-040 CSP and HSTS · ADR-041 languages ·
+ADR-042 command line and GitHub Action
 
 ---
 
@@ -221,6 +223,15 @@ ADR-036 Save, Share and the share target
 - [ ] Measure real savings on real photographs and a full multi-script font
 
 ## Known gaps
+
+- **Ten mixed files at once stall in WebKit** on the production build (with its
+  cross-origin isolation), at "Decoding", with the security policy and without
+  it. One photo, or a font with code, finishes in seconds. Found on a machine
+  short of memory, so it may be load rather than a bug - but until it is
+  understood, `production.spec.ts` marks that test `fixme` in WebKit. Next step:
+  run it on a machine with memory to spare, then with fewer workers.
+- **Per-file notes, advanced settings and whole-site mode are English** on the
+  translated pages (ADR-041), which say so.
 
 - **WebKit has no `OffscreenCanvas` in workers**, so every image decode there
   falls through to the WASM decoders rather than the browser's own. It works and

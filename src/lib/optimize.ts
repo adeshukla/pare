@@ -1,4 +1,6 @@
 import * as Comlink from 'comlink';
+import { hasGpsLocation, isAnimatedGif } from './metadata';
+import { ICON_SNIPPET } from './icons';
 import { needsFor } from './needs';
 import { poolSize, runAll } from './pool';
 import { defaultImgWidth } from './ladder';
@@ -15,7 +17,7 @@ export type Settings = {
 };
 
 /** Asset kinds the text pipeline handles, and that the font scanner reads. */
-const TEXT_KINDS = new Set<Asset['kind']>(['css', 'js', 'html', 'svg']);
+const TEXT_KINDS = new Set<Asset['kind']>(['css', 'js', 'html', 'svg', 'json', 'xml']);
 export const isTextKind = (kind: Asset['kind']): kind is TextKind => TEXT_KINDS.has(kind);
 
 /** One input file and everything we learned about it. */
@@ -57,7 +59,7 @@ export function servedVariant(outcome: ImageOutcome): Variant | undefined {
  * Report
  * ------------------------------------------------------------------ */
 
-export type ReportKind = 'image' | 'font' | 'css' | 'js' | 'html' | 'svg';
+export type ReportKind = 'image' | 'font' | 'css' | 'js' | 'html' | 'svg' | 'json' | 'xml';
 
 export const REPORT_LABEL: Record<ReportKind, string> = {
   image: 'Images',
@@ -66,6 +68,8 @@ export const REPORT_LABEL: Record<ReportKind, string> = {
   js: 'JavaScript',
   html: 'HTML',
   svg: 'SVG',
+  json: 'JSON',
+  xml: 'XML',
 };
 
 export type KindLine = {
@@ -88,7 +92,56 @@ export type Report = {
   skipped: number;
   warnings: number;
   metadataRemoved: number;
+  /** Photos that carried a GPS position and whose output does not. */
+  locationsRemoved: number;
 };
+
+/** before, after, and the one-line detail shown under the file name. */
+export function measure(row: Row): { before: number; after?: number; detail: string } {
+  const image = row.outcome;
+  if (image) {
+    return {
+      before: image.bytesBefore,
+      after: image.skipped ? image.bytesBefore : servedVariant(image)?.bytes.byteLength,
+      detail: image.naturalWidth > 0 ? image.naturalWidth + '×' + image.naturalHeight : '',
+    };
+  }
+
+  const font = row.font;
+  if (font) {
+    const detail = font.skipped
+      ? font.container.toUpperCase()
+      : font.slices.length > 1
+        ? font.slices.length + ' files · ' + font.codepointsAfter + ' characters'
+        : font.codepointsAfter + ' of ' + font.codepointsBefore + ' characters';
+    return { before: font.bytesBefore, after: font.skipped ? font.bytesBefore : font.bytesServed, detail };
+  }
+
+  const text = row.text;
+  if (text) {
+    const encodings = text.siblings.map((s) => (s.encoding === 'gzip' ? 'gzip' : 'brotli'));
+    return {
+      before: text.bytesBefore,
+      after: text.bytesTransport,
+      detail: encodings.length > 0 ? 'minified + ' + encodings.join(' + ') : 'minified',
+    };
+  }
+
+  const raw = row.inspection?.rawBytes ?? row.asset.bytes.byteLength;
+  // Until the run finishes nothing has been copied anywhere yet; saying so early
+  // would describe an outcome that has not happened.
+  return { before: raw, after: undefined, detail: row.state === 'done' ? 'copied unchanged' : '' };
+}
+
+/**
+ * True when the photo carried a GPS position and nothing Pare made from it
+ * does - checked on the output bytes themselves, not assumed from a setting.
+ */
+export function locationRemoved(row: Row): boolean {
+  const image = row.outcome;
+  if (row.state !== 'done' || !image || image.skipped || image.variants.length === 0) return false;
+  return hasGpsLocation(row.asset.bytes) && image.variants.every((v) => !hasGpsLocation(v.bytes));
+}
 
 function blank(kind: ReportKind): KindLine {
   return { kind, count: 0, before: 0, served: 0, emitted: 0, skipped: 0 };
@@ -104,6 +157,7 @@ export function summarise(rows: Row[]): Report {
 
   let warnings = 0;
   let metadataRemoved = 0;
+  let locationsRemoved = 0;
 
   for (const row of rows) {
     if (row.outcome) {
@@ -113,6 +167,7 @@ export function summarise(rows: Row[]): Report {
       l.before += outcome.bytesBefore;
       warnings += outcome.warnings.length;
       metadataRemoved += outcome.metadataRemoved;
+      if (locationRemoved(row)) locationsRemoved++;
 
       if (outcome.skipped) {
         l.skipped++;
@@ -158,7 +213,7 @@ export function summarise(rows: Row[]): Report {
     }
   }
 
-  const ordered: ReportKind[] = ['image', 'font', 'css', 'js', 'html', 'svg'];
+  const ordered: ReportKind[] = ['image', 'font', 'css', 'js', 'html', 'svg', 'json', 'xml'];
   const out = ordered.map((k) => lines.get(k)).filter((l): l is KindLine => l !== undefined);
 
   return {
@@ -170,6 +225,7 @@ export function summarise(rows: Row[]): Report {
     skipped: out.reduce((n, l) => n + l.skipped, 0),
     warnings,
     metadataRemoved,
+    locationsRemoved,
   };
 }
 
@@ -179,6 +235,7 @@ export function summarise(rows: Row[]): Report {
 
 function imageSnippet(outcome: ImageOutcome, settings: ImageSettings): string | undefined {
   if (outcome.variants.length === 0) return undefined;
+  if (settings.output === 'icons') return ICON_SNIPPET;
   const widths = [...new Set(outcome.variants.map((v) => v.width))].sort((a, b) => a - b);
   const imgWidth = defaultImgWidth(widths);
   const fallbacks = outcome.variants.filter((v) => v.format === 'fallback');
@@ -266,8 +323,17 @@ export async function optimizeAssets(
   // Width slices per format: as many as idle workers allow, at most three
   // (a ladder has five or six widths).
   const slices = split ? Math.max(1, Math.min(3, Math.floor(poolSize / Math.max(1, images * enabled.length)))) : 1;
+  // An animation is converted as a whole (ADR-038), and an icon set is made
+  // from one picture (ADR-039), so neither is split.
+  const splittable = (asset: Asset) =>
+    asset.kind === 'image' &&
+    split &&
+    settings.image.output !== 'icons' &&
+    !(asset.mime === 'image/gif' && isAnimatedGif(asset.bytes));
+  // One icon set per run: its files have fixed names, and a second would overwrite the first.
+  const iconSource = settings.image.output === 'icons' ? assets.find((a) => a.kind === 'image') : undefined;
   const jobs: Job[] = assets.flatMap((asset, index): Job[] =>
-    asset.kind === 'image' && split
+    splittable(asset)
       ? enabled.flatMap((format, f) =>
           Array.from({ length: slices }, (_, s) => ({
             asset,
@@ -319,6 +385,21 @@ export async function optimizeAssets(
       rows[index] = row;
       onUpdate(index, row);
     };
+
+    if (asset.kind === 'image' && iconSource && asset !== iconSource) {
+      return done({
+        outcome: {
+          inputPath: asset.path,
+          bytesBefore: asset.bytes.byteLength,
+          naturalWidth: 0,
+          naturalHeight: 0,
+          variants: [],
+          metadataRemoved: 0,
+          warnings: [],
+          skipped: `One icon set is made at a time, and this run's comes from ${iconSource.path}. Drop this picture on its own to make icons from it.`,
+        },
+      });
+    }
 
     if (asset.kind === 'image') {
       const single = format

@@ -98,6 +98,7 @@ export function outputFiles(rows: Row[]): Record<string, Uint8Array> {
     const image = row.outcome;
     if (image && image.variants.length > 0) {
       for (const v of image.variants) files[v.path] = v.bytes;
+      for (const e of image.extras ?? []) files[e.path] = e.bytes;
       continue;
     }
 

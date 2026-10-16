@@ -64,5 +64,28 @@ test('a task page has its own words and starts from its own settings', async ({ 
   await expect(page.getByRole('radio', { name: 'Responsive set' })).toBeChecked();
 
   // And every task page links to the others.
-  await expect(page.getByRole('navigation', { name: 'Tools' }).getByRole('link')).toHaveCount(5);
+  await expect(page.getByRole('navigation', { name: 'Tools' }).getByRole('link')).toHaveCount(6);
+});
+
+test('a page in another language, and the picker moves between them (ADR-041)', async ({ page }) => {
+  await page.goto('/hi/tools/compress-image/');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'hi');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('साइज़ में लाएँ, 100 KB से कम।');
+  await expect(page.getByRole('button', { name: 'फ़ाइलें चुनें' })).toBeVisible();
+  await expect(page.locator('link[rel=alternate][hreflang=es]')).toHaveAttribute(
+    'href',
+    'https://pare.devstash.me/es/tools/compress-image/',
+  );
+
+  // The same task's settings apply in every language.
+  await page.locator('input[type=file]').setInputFiles('tests/fixtures/photo.jpg');
+  await expect(page.getByRole('radio', { name: 'तय साइज़ से कम' })).toBeChecked();
+  await expect(page.getByRole('button', { name: '1 फ़ाइल छोटी करें' })).toBeVisible();
+
+  await page.getByRole('combobox', { name: 'भाषा' }).selectOption('es');
+  await expect(page).toHaveURL(/\/es\/tools\/compress-image\/$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Que quepa, menos de 100 KB.');
+  await page.getByRole('combobox', { name: 'Idioma' }).selectOption('en');
+  await expect(page).toHaveURL(/\/tools\/compress-image\/$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Make it fit under 100 KB.');
 });

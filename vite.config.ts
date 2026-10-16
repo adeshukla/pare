@@ -1,23 +1,67 @@
-import { defineConfig } from 'vitest/config';
+import { readFileSync } from 'node:fs';
+import { defineConfig, type Plugin } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { TASKS } from './src/tasks';
+import { LANGS, TASKS, homePath, taskPath } from './src/tasks';
 
-const ISOLATION = {
-  'Cross-Origin-Opener-Policy': 'same-origin',
-  'Cross-Origin-Embedder-Policy': 'require-corp',
-};
+type HeaderRule = { pattern: RegExp; set: Array<[string, string]>; detach: string[] };
+
+/**
+ * public/_headers as Cloudflare Pages reads it: a path pattern, then indented
+ * `Name: value` lines to add and `! Name` lines to remove what an earlier rule
+ * added. Every rule whose pattern matches applies, in order.
+ */
+function headerRules(): HeaderRule[] {
+  const rules: HeaderRule[] = [];
+  for (const line of readFileSync('public/_headers', 'utf8').split(/\r?\n/)) {
+    if (!line.trim() || line.trimStart().startsWith('#')) continue;
+    if (!/^\s/.test(line)) {
+      const glob = line.trim().replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+      rules.push({ pattern: new RegExp('^' + glob + '$'), set: [], detach: [] });
+      continue;
+    }
+    const rule = rules.at(-1);
+    const detach = /^\s+!\s*([\w-]+)\s*$/.exec(line);
+    const set = /^\s+([\w-]+):\s*(.+)$/.exec(line);
+    if (rule && detach) rule.detach.push(detach[1]!);
+    else if (rule && set) rule.set.push([set[1]!, set[2]!.trim()]);
+  }
+  return rules;
+}
+
+/**
+ * The preview sends exactly what production sends, path by path, so the
+ * production tests run under the real policy (ADR-040). Not on the dev server:
+ * it injects its own client into workers, and WebKit refuses those imports
+ * under COEP, which hangs the threaded AVIF encoder - a dev-only failure that
+ * the production build does not have.
+ */
+function productionHeaders(): Plugin {
+  return {
+    name: 'pare-production-headers',
+    configurePreviewServer(server) {
+      const rules = headerRules();
+      server.middlewares.use((req, res, next) => {
+        const path = (req.url ?? '/').split('?')[0]!;
+        const headers = new Map<string, string>();
+        for (const rule of rules) {
+          if (!rule.pattern.test(path)) continue;
+          for (const name of rule.detach) headers.delete(name.toLowerCase());
+          for (const [name, value] of rule.set) {
+            const key = name.toLowerCase();
+            headers.set(key, headers.has(key) ? headers.get(key) + ', ' + value : value);
+          }
+        }
+        for (const [name, value] of headers) res.setHeader(name, value);
+        next();
+      });
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), productionHeaders()],
   worker: { format: 'es' },
-
-  // The isolation headers production sends (public/_headers), on the preview of
-  // the built site, which the production tests run against. Not on the dev
-  // server: it injects its own client into workers, and WebKit refuses those
-  // imports under COEP, which hangs the threaded AVIF encoder - a dev-only
-  // failure that the production build does not have.
-  preview: { headers: ISOLATION },
 
   // clean-css and terser, which html-minifier-terser pulls in, read `process`
   // at module scope. They are Node libraries being run somewhere they were not
@@ -51,7 +95,7 @@ export default defineConfig({
     // have to be pre-bundled to be importable at all. Naming them here also
     // pins the work to server start-up: discovered later, Vite re-optimizes and
     // reloads the page mid-run, which tears down whatever was mid-encode.
-    include: ['html-minifier-terser', 'svgo/browser', 'terser'],
+    include: ['html-minifier-terser', 'svgo/browser', 'terser', 'utif2', 'omggif'],
   },
 
   build: {
@@ -61,10 +105,13 @@ export default defineConfig({
     manifest: true,
     // The task pages (ADR-035) are the same app under their own addresses.
     rolldownOptions: {
-      input: {
-        main: 'index.html',
-        ...Object.fromEntries(TASKS.map((t) => [t.slug, `tools/${t.slug}/index.html`])),
-      },
+      // Every generated page, in every language (ADR-041), keyed by its address.
+      input: Object.fromEntries(
+        LANGS.flatMap((lang) => [homePath(lang), ...TASKS.map((t) => taskPath(t, lang))]).map((path) => [
+          path === '/' ? 'main' : path.replace(/^\/|\/$/g, '').replace(/\//g, '-'),
+          path === '/' ? 'index.html' : path.slice(1) + 'index.html',
+        ]),
+      ),
     },
   },
 

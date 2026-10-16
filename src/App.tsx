@@ -14,6 +14,8 @@ import { Results } from './components/Results';
 import { FilesSavings } from './components/Savings';
 import { UnusedCss } from './components/UnusedCss';
 import { Backdrop, Icon, Logo, ThemeToggle, Toast } from './components/Visuals';
+import { diagnostic } from './lib/diagnostic';
+import { savingsReport, type ReportEntry } from './lib/share-report';
 import { buildZip, download, outputFiles, zipToBlob } from './lib/emit';
 import { usePersistent } from './lib/persist';
 import { canSaveToFolder, saveToFolder } from './lib/save-folder';
@@ -27,15 +29,19 @@ import {
   type FolderResult,
   type FolderSettings,
 } from './lib/folder';
-import { isTextKind, newRow, optimizeAssets, summarise, type Row, type Settings } from './lib/optimize';
+import { isTextKind, measure, newRow, optimizeAssets, summarise, type Row, type Settings } from './lib/optimize';
 import { poolSize, warmUp } from './lib/pool';
 import { DEFAULTS, FONT_DEFAULTS, TEXT_DEFAULTS } from './lib/settings';
 import type { Asset } from './lib/types';
 import { verify, type VerifyReport } from './lib/verify';
-import { TASKS, taskPath } from './tasks';
+import { lang, t } from './i18n';
+import { homePath, TASKS, taskCopy, taskPath } from './tasks';
+import { LanguagePicker } from './components/LanguagePicker';
 
 /** Set on a task page's <html> by scripts/make-task-pages.mjs (ADR-035). */
 const TASK = TASKS.find((t) => t.slug === document.documentElement.dataset.task);
+/** The task's words in this page's language (ADR-041). */
+const COPY = TASK && taskCopy(TASK, lang);
 
 const INITIAL: Settings = {
   image: { ...DEFAULTS, ...TASK?.image },
@@ -64,6 +70,8 @@ export default function App() {
   const [folder, setFolder] = useState<FolderResult>();
   const [verification, setVerification] = useState<VerifyReport>();
   const [toast, setToast] = useState<{ id: number; text: string }>();
+  /** Set by the sample button: run as soon as the rows are in. */
+  const [autostart, setAutostart] = useState(false);
 
   useEffect(() => {
     void registerOffline().then(setOffline);
@@ -92,12 +100,7 @@ export default function App() {
 
   const pages = rows.filter((r) => r.asset.kind === 'html').length;
   const templates = rows.filter((r) => r.asset.kind === 'template').length;
-  const siteParts = [
-    pages > 0 ? `${pages} page${pages === 1 ? '' : 's'}` : '',
-    templates > 0 ? `${templates} template${templates === 1 ? '' : 's'}` : '',
-  ]
-    .filter(Boolean)
-    .join(', ');
+  const siteParts = t.siteParts(pages, templates);
   const workable = rows.filter(
     (r) => r.asset.kind === 'image' || r.asset.kind === 'font' || isTextKind(r.asset.kind),
   ).length;
@@ -108,17 +111,21 @@ export default function App() {
     const images = rows.filter((r) => r.asset.kind === 'image').length;
     const fonts = rows.filter((r) => r.asset.kind === 'font').length;
     const code = rows.filter((r) => isTextKind(r.asset.kind)).length;
-    return [
-      [images, images === 1 ? 'image' : 'images'],
-      [fonts, fonts === 1 ? 'font' : 'fonts'],
-      [code, 'code'],
-      [rows.length - images - fonts - code, 'other'],
-    ].filter(([n]) => (n as number) > 0) as Array<[number, string]>;
+    return (
+      [
+        [images, 'image'],
+        [fonts, 'font'],
+        [code, 'code'],
+        [rows.length - images - fonts - code, 'other'],
+      ] as const
+    )
+      .filter(([n]) => n > 0)
+      .map(([n, kind]) => t.kindCount(n, kind));
   }, [rows]);
 
-  const accept = useCallback((assets: Asset[], notes: string[] = []) => {
+  const accept = useCallback((assets: Asset[], notes: string[] = [], start = false) => {
     if (assets.length === 0) {
-      setNote(notes.join(' ') || 'Nothing readable in that drop.');
+      setNote(notes.join(' ') || t.nothingReadable);
       return;
     }
     setNote(notes.join(' '));
@@ -126,6 +133,7 @@ export default function App() {
     setFolder(undefined);
     setVerification(undefined);
     setRows(assets.map(newRow));
+    setAutostart(start);
 
     // Start loading the image encoders now, while the settings are read.
     const images = assets.filter((a) => a.kind === 'image');
@@ -144,8 +152,15 @@ export default function App() {
   }, []);
 
   async function runFiles() {
+    // Progress reaches here on a different channel from results, so a late
+    // progress report can arrive after a file has finished. It must not
+    // un-finish it - Firefox does deliver them in that order.
     const update = (index: number, patch: Partial<Row>) =>
-      setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+      setRows((prev) =>
+        prev.map((r, i) =>
+          i !== index ? r : r.state === 'done' && patch.state !== 'done' ? r : { ...r, ...patch },
+        ),
+      );
     const done = await optimizeAssets(
       rows.map((r) => r.asset),
       settings,
@@ -167,7 +182,8 @@ export default function App() {
       (path, ratio, label) =>
         setRows((prev) =>
           prev.map((r) =>
-            r.asset.path === path
+            // As in runFiles: a late progress report never un-finishes a file.
+            r.asset.path === path && r.state !== 'done'
               ? { ...r, state: ratio >= 1 ? 'done' : 'running', progress: ratio, label }
               : r,
           ),
@@ -200,6 +216,41 @@ export default function App() {
     } finally {
       setRunning(false);
     }
+  }
+
+  useEffect(() => {
+    if (!autostart || running || rows.length === 0) return;
+    // After this render commits; go() reads this render's rows and mode.
+    queueMicrotask(() => {
+      setAutostart(false);
+      void go();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autostart, rows]);
+
+  async function copyDiagnostic() {
+    const text = diagnostic({ rows, settings, folderSettings, mode, folder, verification });
+    try {
+      await navigator.clipboard.writeText(text);
+      say('Copied. Paste it into your report - it holds no file names or contents.');
+    } catch {
+      say('Copying was refused by the browser.');
+    }
+  }
+
+  /** A before-and-after page to hand on (audit item 12). */
+  function downloadReport() {
+    const entries: ReportEntry[] =
+      mode === 'site' && folder
+        ? folder.files
+            .filter((f) => !f.siblingOf)
+            .map((f) => ({ name: f.path, before: f.bytesBefore, after: f.bytesServed ?? f.bytes.byteLength, note: f.skipped }))
+        : rows.map((r) => {
+            const m = measure(r);
+            return { name: r.asset.path, before: m.before, after: m.after ?? m.before, note: m.detail };
+          });
+    const html = savingsReport(entries, mode === 'site' ? 'Whole site' : 'Files');
+    download(new Blob([html], { type: 'text/html' }), 'pare-report.html');
   }
 
   function downloadSite() {
@@ -246,11 +297,7 @@ export default function App() {
   const verifying = running && mode === 'site' && folder !== undefined && !verification;
   const started = rows.length > 0;
 
-  const runLabel = running
-    ? 'Working…'
-    : mode === 'site'
-      ? 'Optimize the site'
-      : 'Optimize ' + workable + (workable === 1 ? ' file' : ' files');
+  const runLabel = running ? t.working : mode === 'site' ? t.optimizeSite : t.optimizeFiles(workable);
 
   return (
     <>
@@ -258,20 +305,21 @@ export default function App() {
 
       <header className="sticky top-0 z-40 border-b border-transparent bg-paper/70 backdrop-blur-xl supports-[backdrop-filter]:bg-paper/60">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <button onClick={startOver} className="rounded-lg" aria-label="Pare — back to the start">
+          <button onClick={startOver} className="rounded-lg" aria-label={t.backToStart}>
             <Logo />
           </button>
           <div className="flex items-center gap-2">
             <span className="chip hidden sm:inline-flex">
               <Icon name="shield" size={13} className="text-saved" />
-              Nothing leaves this tab
+              {t.privacyChip}
             </span>
             {offline && (
               <span className="chip pop hidden sm:inline-flex">
                 <Icon name="offline" size={13} className="text-accent" />
-                Works offline
+                {t.worksOffline}
               </span>
             )}
+            <LanguagePicker />
             <ThemeToggle />
           </div>
         </div>
@@ -280,24 +328,22 @@ export default function App() {
       <main className="mx-auto max-w-[1440px] px-4 pt-10 pb-16 sm:px-6 sm:pt-16">
         {/* One top-level heading always, for screen readers and outlines; the
             visible one is part of the landing page. */}
-        {started && <h1 className="sr-only">Pare — optimize your files</h1>}
+        {started && <h1 className="sr-only">{t.srOptimize}</h1>}
         {!started && (
           <section className="mx-auto max-w-3xl text-center">
             <p className="rise chip mx-auto" style={{ ['--i' as string]: 0 }}>
               <Icon name="sparkle" size={13} className="text-accent" />
-              {TASK ? 'Free · private · works offline' : 'Images · fonts · code · whole sites'}
+              {COPY ? t.taskChip : t.heroChip}
             </p>
             <h1
               className="rise mt-5 font-[family-name:var(--font-display)] text-5xl leading-[1.02] font-bold tracking-[-0.035em] sm:text-7xl"
               style={{ ['--i' as string]: 0 }}
             >
-              {TASK ? TASK.heading[0] : 'Pare it'}{' '}
-              <span className="gradient-text">{TASK ? TASK.heading[1] : 'down.'}</span>
+              {(COPY?.heading ?? t.heroHeading)[0]}{' '}
+              <span className="gradient-text">{(COPY?.heading ?? t.heroHeading)[1]}</span>
             </h1>
             <p className="rise mx-auto mt-5 max-w-xl text-lg text-muted" style={{ ['--i' as string]: 1 }}>
-              {TASK
-                ? TASK.lede
-                : 'Shrink your images, fonts and code, and get the markup to use them. Files are read in this tab and never sent anywhere — there is no server to send them to.'}
+              {COPY?.lede ?? t.heroLede}
             </p>
           </section>
         )}
@@ -321,11 +367,11 @@ export default function App() {
         {started && (
           <>
             {(pages > 0 || templates > 0) && (
-              <div className="rise mt-6 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="What to do">
+              <div className="rise mt-6 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t.whatToDo}>
                 {(
                   [
-                    ['site', `Optimize the whole site (${siteParts})`, templates > 0 ? 'Every file shrinks in place under its own name. Templates are never touched, so a WordPress or PHP site keeps working.' : 'Every file shrinks in place, addresses stay correct, and each page is checked before you can download.', 'layers'],
-                    ['files', 'Just give me optimized files and snippets', 'AVIF, WebP, fonts and minified code, with markup to paste where you like.', 'image'],
+                    ['site', t.modeSite(siteParts), templates > 0 ? t.modeSiteHintTemplates : t.modeSiteHint, 'layers'],
+                    ['files', t.modeFiles, t.modeFilesHint, 'image'],
                   ] as const
                 ).map(([value, label, hint, icon]) => (
                   <label
@@ -395,35 +441,33 @@ export default function App() {
                     </button>
                     <div className="min-w-0 flex-1">
                       <p className="flex flex-wrap gap-1.5">
-                        {counts.map(([n, label]) => (
+                        {counts.map((label) => (
                           <span key={label} className="chip tnum">
-                            {n} {label}
+                            {label}
                           </span>
                         ))}
                       </p>
                       <p className="mt-1.5 text-xs text-muted">
-                        {rows.length} dropped &middot; {poolSize} worker{poolSize === 1 ? '' : 's'}
+                        {t.dropped(rows.length, poolSize)}
                       </p>
                     </div>
                     {!running && (
                       <button onClick={startOver} className="btn btn-ghost btn-sm">
                         <Icon name="refresh" size={14} />
-                        Start over
+                        {t.startOver}
                       </button>
                     )}
                   </div>
                   {running && (
                     <div className="border-t border-rule px-5 py-3">
                       <div className="flex items-center justify-between text-xs text-muted">
-                        <span>{verifying ? 'Checking pages' : 'Optimizing'}</span>
-                        <span className="tnum">
-                          {finished} of {rows.length} done
-                        </span>
+                        <span>{verifying ? t.checkingPages : t.optimizing}</span>
+                        <span className="tnum">{t.doneOf(finished, rows.length)}</span>
                       </div>
                       <span
                         className="progress mt-2 block"
                         role="progressbar"
-                        aria-label="Files finished"
+                        aria-label={t.filesFinished}
                         aria-valuemin={0}
                         aria-valuemax={rows.length}
                         aria-valuenow={finished}
@@ -456,9 +500,13 @@ export default function App() {
                         {canSaveToFolder() && (
                           <button onClick={() => folder && void save(distFiles(folder))} className="btn">
                             <Icon name="folder" size={16} />
-                            Save to a folder…
+                            {t.saveToFolder}
                           </button>
                         )}
+                        <button onClick={downloadReport} className="btn">
+                          <Icon name="layers" size={16} />
+                          {t.savingsReport}
+                        </button>
                         <p className="basis-full text-xs text-muted">
                           Upload the contents in place of your folder. Your original files are
                           untouched.
@@ -481,25 +529,28 @@ export default function App() {
                         className="btn btn-primary"
                       >
                         <Icon name="download" size={16} />
-                        Download zip
+                        {t.downloadZip}
                       </button>
                       {canSaveToFolder() && (
                         <button onClick={() => void save(outputFiles(rows))} className="btn">
                           <Icon name="folder" size={16} />
-                          Save to a folder…
+                          {t.saveToFolder}
                         </button>
                       )}
+                      <button onClick={downloadReport} className="btn">
+                        <Icon name="layers" size={16} />
+                        {t.savingsReport}
+                      </button>
                       {snippetCount > 0 && (
                         <button onClick={() => void copyAllSnippets()} className="btn">
                           <Icon name="copy" size={16} />
-                          {snippetCount === 1 ? 'Copy snippet' : `Copy all ${snippetCount} snippets`}
+                          {snippetCount === 1 ? t.copySnippet : t.copyAllSnippets(snippetCount)}
                         </button>
                       )}
                     </div>
-                    <p className="mt-3 text-xs text-muted">
-                      Includes <code className="font-mono">snippets.html</code> with every generated
-                      tag. Your original files are untouched.
-                    </p>
+                    <p className="mt-3 text-xs text-muted">{t.zipNote}</p>
+                    {/* ADR-041: notes about each file are not translated yet, and say so. */}
+                    {lang !== 'en' && <p className="mt-1 text-xs text-muted">{t.englishNote}</p>}
                   </FilesSavings>
                 )}
 
@@ -513,23 +564,25 @@ export default function App() {
       <footer className="border-t border-rule">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-muted sm:px-6">
           <Logo />
-          <nav aria-label="Tools" className="flex flex-wrap gap-x-4 gap-y-1">
+          <nav aria-label={t.tools} className="flex flex-wrap gap-x-4 gap-y-1">
             {TASK && (
-              <a href="/" className="hover:text-ink">
-                Everything Pare does
+              <a href={homePath(lang)} className="hover:text-ink">
+                {t.everything}
               </a>
             )}
-            {TASKS.filter((t) => t !== TASK).map((t) => (
-              <a key={t.slug} href={taskPath(t)} className="hover:text-ink">
-                {t.name}
+            {TASKS.filter((task) => task !== TASK).map((task) => (
+              <a key={task.slug} href={taskPath(task, lang)} className="hover:text-ink">
+                {taskCopy(task, lang).name}
               </a>
             ))}
           </nav>
           <p>
-            No upload, no account, no server.
-            {offline &&
-              ' Anything you have used once in this browser keeps working without a connection.'}
+            {t.noUpload}
+            {offline && t.offlineNote}
           </p>
+          <button onClick={() => void copyDiagnostic()} className="cursor-pointer underline-offset-4 hover:text-ink hover:underline">
+            {t.bugReport}
+          </button>
         </div>
       </footer>
 

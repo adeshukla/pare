@@ -672,7 +672,7 @@ remedy offered is turning it off.
 
 ## ADR-022 — Animated GIFs are copied unchanged
 
-**Status:** accepted
+**Status:** accepted; superseded in files mode by ADR-038 (animated WebP). Whole-site mode still copies animations unchanged.
 
 **Context.** Pare decodes a GIF's first frame only, because none of its encoders
 write animated AVIF or WebP. Files mode used to encode that frame anyway and warn
@@ -1072,3 +1072,142 @@ tidies the address.
 service worker, so it works from the second visit on (and only once installed on
 Android). Below the small breakpoint the results table drops its *Before* column
 so the name, Save and the saving fit.
+
+## ADR-037 — Width and height on images, only where trying them on moves nothing
+
+**Status:** accepted
+
+**Context.** An `<img>` without `width` and `height` takes no space until it
+loads, so the page jumps. Adding the attributes is the standard fix, but they
+are not free: on an image whose CSS sets its width and leaves its height to the
+picture, a `height` attribute fixes the height in pixels and squashes it.
+
+**Decision.** In whole-site mode, on by default with its own switch. While the
+pages are rendered for right-sizing (ADR-030), every `<img>` that has neither
+attribute is measured, given both at its natural size, measured again, and
+restored. An image gets the attributes - at its final size, after any
+right-sizing - only if that moved or resized nothing, on every page at every
+width, and only where every reference to it is a plain `<img src>`. The tags are
+spliced, never re-serialized (ADR-015). The verifier ignores `aspect-ratio` in
+its style comparison, since that is what the attributes map to; its only effect
+is on the box, which the geometry check still compares.
+
+**Consequence.** Pages stop jumping where it is safe, and nowhere else. An
+image hidden at every width, or one that did not load while measured, is left
+alone.
+
+## ADR-038 — More inputs: TIFF, animated GIF to animated WebP, JSON and XML
+
+**Status:** accepted. Supersedes ADR-022 in files mode.
+
+**TIFF.** Decoded with UTIF (Photopea, MIT, plain JavaScript, loaded on first
+use) where the browser cannot - only Safari can. It comes out as JPEG, or PNG
+when it has transparency. A multi-page TIFF converts its first page and says
+so. Only files named `.tif`/`.tiff` count, because camera RAW files are TIFF
+inside and would give their small preview.
+
+**Animated GIF.** No browser-side encoder writes animated WebP, but the format
+is a RIFF container around still WebP frames. The GIF's frames are decoded with
+omggif and composited as a browser does (disposal and all), each full frame is
+encoded with the existing still WebP encoder, and the frames are wrapped in
+`ANIM`/`ANMF` chunks (`src/lib/animated-webp.ts`, unit-tested with a fake
+encoder). The GIF is kept as the fallback. If the WebP is not smaller - small
+flat-colour GIFs often are not - the GIF is kept unchanged and the row says so.
+No AVIF is made for animations, and a size limit is not applied to them. An
+animation is one job, never split across workers (ADR-032). Whole-site mode
+still copies animations unchanged.
+
+**JSON and XML.** JSON (including `.webmanifest`) loses whitespace outside
+strings; nothing is re-printed, because `JSON.parse` then `stringify` would
+round large integers and rewrite `1.0` as `1`. XML (sitemaps, RSS, Atom) loses
+whitespace-only text that holds a line break between two tags, except an
+element's own whitespace-only value. Files that ask for their whitespace
+(`xml:space="preserve"`) and XHTML, where a line break between inline elements
+is a visible space, are left alone. In whole-site mode anything a JSON or XML
+file names keeps its name, since those files are not rewritten.
+
+## ADR-039 — An icon set from one picture
+
+**Status:** accepted
+
+**Decision.** A fourth image output, *App icons*, and a "Make a favicon" task
+page. From one picture: `favicon.ico` (16, 32 and 48 px PNGs inside, which every
+current browser reads), `apple-touch-icon.png` (180), `icon-192.png`,
+`icon-512.png`, a maskable 512 px icon with the picture inside the 80% safe
+zone on its own corner colour (white when that is transparent), a
+`manifest.webmanifest` listing them, and the three tags to paste. A picture
+that is not square uses its middle; one under 512 px is enlarged, and the row
+says so. One set per run, since the files have fixed names. Icons are always
+PNG, so the format and quality settings do not apply; the panel says so.
+
+## ADR-040 — Content-Security-Policy and HSTS
+
+**Status:** accepted
+
+**Context.** The audit found no CSP. Pare's checker renders the user's pages in
+frames that inherit the page's policy, and the codecs are WebAssembly, so a
+copied-in policy would break it.
+
+**Decision.** `public/_headers` sends a policy that allows only this site's own
+files, with three exceptions, each with one reason: `'wasm-unsafe-eval'` for the
+codecs; the theme script inlined in `index.html` by its hash (a unit test keeps
+the hash in step with the script); and `blob:`/`data:` plus inline styles for
+dropped files and the checker's copies of a user's site. Scripts under
+`/assets/` get their own policy, which adds `'unsafe-eval'`, because a worker
+runs under its own script's policy and the WOFF2 codec's Emscripten glue builds
+functions with `new Function` as it loads. No page code runs under that policy.
+HSTS for a year.
+
+**How it is tested.** `vite preview` now applies `public/_headers` path by path,
+as Cloudflare does, so the production tests run under the shipped policy. A test
+runs every codec and a whole-site check and fails on any refusal, and another
+runs the WOFF2 font and the minifiers on their own. All three engines give a
+worker its own script's policy; verified in Chromium, Firefox and WebKit. In
+WebKit the ten-file test is marked as a known problem: ten mixed files at once
+stall there at "Decoding" on the build machine, with this policy and without it.
+
+**Consequence.** A user's page that names a file on another origin still does
+not load it in the checker - cross-origin isolation already blocked that, on
+both sides of the comparison.
+
+## ADR-041 — Languages
+
+**Status:** accepted
+
+**Decision.** Hindi, Spanish, Portuguese and Indonesian, alongside English: the
+languages of the most people who need "make my photo smaller". A language is an
+address - `/hi/`, `/es/tools/compress-image/` - set as `<html lang>` by
+`scripts/make-task-pages.mjs`, with `hreflang` links between every page and its
+translations, so search engines send people to their own language. Nothing is
+guessed from the browser, so a link opens in the language it was shared in. A
+picker in the header moves to the same page in another language.
+
+**What is translated.** The everyday path: the landing page, drop zone, run
+button, results, savings, Save and Share, the size-limit and icon options, the
+task pages. `src/i18n.ts` holds the words; English is the source, and a
+language missing a key does not compile.
+
+**What is not, yet.** Notes about a single file (they come from the worker),
+the advanced settings, and whole-site mode. A translated page says the notes are
+in English.
+
+## ADR-042 — A command line and a GitHub Action
+
+**Status:** accepted
+
+**Decision.** `cli/pare.mjs` opens Pare in a headless Chromium on the machine it
+runs on, hands it a folder, waits for the before-and-after check, and writes
+what the page would let you download into an empty or new folder. It is the same
+engine because it is the same app; files go from the disk into a local browser
+tab and back. It exits 1, writing nothing, if the check finds a change.
+`--keep-names`, `--files` and `--url` (to run a local `npm run preview` rather
+than pare.devstash.me) are the only options.
+
+`action.yml` wraps it as a composite GitHub Action, installing only the
+command's two packages and a Chromium. Inputs reach the shell as environment
+variables, never pasted into the script. CI runs the Action on the test site
+against each commit's own build.
+
+**Rejected:** porting the engine to Node. The codecs, the DOM parsing and above
+all the verifier, which renders pages, are browser-native; a port would be a
+second engine to keep in step with the first.

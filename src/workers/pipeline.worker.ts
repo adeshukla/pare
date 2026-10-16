@@ -3,6 +3,10 @@ import { fromText, union, withSafetyFloor } from '../lib/codepoints';
 import { resolveWidths, scaledHeight } from '../lib/ladder';
 import { isAnimatedGif, stripMetadata } from '../lib/metadata';
 import { fitToSize } from '../lib/target';
+import { minifyJson, minifyXml } from '../lib/data-minify';
+import { gifInfo, gifToAnimatedWebp } from '../lib/animated-webp';
+import { tiffPages } from './tiff';
+import { buildIco, iconManifest, ICON_SIZES, MASKABLE_FILL } from '../lib/icons';
 import { compressedPath, fontSlicePath, splitPath, variantPath } from '../lib/naming';
 import {
   coveredCodepoints,
@@ -87,12 +91,15 @@ async function dimensions(bytes: Uint8Array, mime: string) {
 }
 
 /** The safe output format: stay in the source's own family. */
-function fallbackMime(sourceMime: string): string {
+function fallbackMime(sourceMime: string, source?: ImageData): string {
   // Lossless sources stay lossless. A BMP is usually a screenshot or a graphic,
   // and PNG keeps it exact; a HEIC is a photograph, and JPEG is its universal form.
   if (sourceMime === 'image/png' || sourceMime === 'image/gif' || sourceMime === 'image/bmp') {
     return 'image/png';
   }
+  // A TIFF is a scan or a photograph as often as a graphic: JPEG unless it has
+  // transparency, which JPEG would lose (ADR-038).
+  if (sourceMime === 'image/tiff' && source && !isOpaque(source)) return 'image/png';
   return 'image/jpeg';
 }
 
@@ -185,7 +192,7 @@ async function fitFormat(
   // the limit keeps its format: recompressed losslessly it only gets smaller.
   const losslessSource = sourceMime === 'image/png' || sourceMime === 'image/gif' || sourceMime === 'image/bmp';
   const toJpeg = format === 'fallback' && losslessSource && sourceBytes > limit && isOpaque(source);
-  const outMime = format !== 'fallback' ? 'image/' + format : toJpeg ? 'image/jpeg' : fallbackMime(sourceMime);
+  const outMime = format !== 'fallback' ? 'image/' + format : toJpeg ? 'image/jpeg' : fallbackMime(sourceMime, source);
   const lossless = outMime === 'image/png';
   const name = format === 'fallback' ? (outMime === 'image/png' ? 'PNG' : 'JPEG') : format.toUpperCase();
 
@@ -380,7 +387,7 @@ async function optimizeFont(
  * Phase 3 - text
  * ------------------------------------------------------------------ */
 
-type MinifiedText = { code: string; map?: string; note?: string };
+type MinifiedText = { code: string; map?: string; note?: string; skipped?: string };
 
 async function minifyByKind(
   source: string,
@@ -417,6 +424,18 @@ async function minifyByKind(
 
   if (kind === 'html') {
     return settings.html ? { code: await minifyHtml(source, settings.target, settings.jsLevel) } : undefined;
+  }
+  if (kind === 'json') {
+    if (!settings.json) return undefined;
+    const code = minifyJson(source);
+    return code === undefined
+      ? { code: source, skipped: 'This is not valid JSON, so it was left exactly as it was.' }
+      : { code };
+  }
+  if (kind === 'xml') {
+    if (!settings.xml) return undefined;
+    const result = minifyXml(source);
+    return 'code' in result ? result : { code: source, skipped: result.skipped + ' It was copied unchanged.' };
   }
   return settings.svg ? { code: await minifySvg(source, path) } : undefined;
 }
@@ -457,6 +476,8 @@ async function optimizeText(
 
     if (minified === undefined) {
       skipped = 'Minifying ' + kind.toUpperCase() + ' is turned off, so this was copied unchanged.';
+    } else if (minified.skipped) {
+      skipped = minified.skipped;
     } else {
       if (minified.note) base.warnings.push(minified.note);
       const mapPath = path + '.map';
@@ -653,6 +674,159 @@ const PREVIEW_WIDTH = 800;
 /** One decoded, scaled sample per worker, so dragging a slider only re-encodes. */
 let previewSource: { key: string; data: ImageData } | undefined;
 
+/**
+ * favicon.ico, the Apple touch icon, the manifest icons (plain and maskable)
+ * and the manifest, from one picture (ADR-039). Square by cropping the middle;
+ * every change is a sentence.
+ */
+async function iconSet(base: ImageOutcome, path: string, source: ImageData, onProgress: Progress): Promise<ImageOutcome> {
+  const side = Math.min(source.width, source.height);
+  if (source.width !== source.height) {
+    base.warnings.push(`Icons are square, so the middle ${side}×${side} of this ${source.width}×${source.height} picture was used.`);
+  }
+  if (side < ICON_SIZES.large) {
+    base.warnings.push(`This picture is ${side}px across, so the larger icons (up to 512px) are enlarged from it and may look soft. A 512px or larger original gives sharp ones.`);
+  }
+  const square =
+    source.width === source.height
+      ? source
+      : crop(source, Math.floor((source.width - side) / 2), Math.floor((source.height - side) / 2), side, side);
+  const sized = new Map<number, ImageData>();
+  const at = async (size: number) => {
+    if (size === side) return square;
+    const hit = sized.get(size);
+    if (hit) return hit;
+    const made = await resize(square, size, size);
+    sized.set(size, made);
+    return made;
+  };
+  const steps = 7;
+  let step = 0;
+  const png = async (size: number) => {
+    onProgress(0.1 + (0.85 * step++) / steps, `${size}px icon`);
+    return encodePng(await at(size));
+  };
+
+  const ico = buildIco(await Promise.all(ICON_SIZES.ico.map(async (size) => ({ size, png: await png(size) }))));
+  const apple = await png(ICON_SIZES.apple);
+  const small = await png(ICON_SIZES.small);
+  const large = await png(ICON_SIZES.large);
+
+  // Maskable: the picture inside the safe zone, on a background that a phone
+  // may crop to a circle or a squircle. The background is the picture's own
+  // corner colour where that is solid, white where it is transparent.
+  const full = ICON_SIZES.large;
+  const inner = Math.round(full * MASKABLE_FILL);
+  const content = await at(inner);
+  const corner = square.data.subarray(0, 4);
+  const bg = corner[3] === 255 ? [corner[0]!, corner[1]!, corner[2]!] : [255, 255, 255];
+  const canvas = new ImageData(full, full);
+  for (let i = 0; i < canvas.data.length; i += 4) canvas.data.set([bg[0]!, bg[1]!, bg[2]!, 255], i);
+  const offset = Math.floor((full - inner) / 2);
+  for (let y = 0; y < inner; y++) {
+    for (let x = 0; x < inner; x++) {
+      const s = (y * inner + x) * 4;
+      const d = ((y + offset) * full + x + offset) * 4;
+      const a = content.data[s + 3]! / 255;
+      for (let c = 0; c < 3; c++) canvas.data[d + c] = Math.round(content.data[s + c]! * a + canvas.data[d + c]! * (1 - a));
+    }
+  }
+  onProgress(0.9, 'Maskable icon');
+  const maskable = await encodePng(canvas);
+  if (corner[3] !== 255) {
+    base.warnings.push('The maskable icon sits on white, since this picture has no solid background colour of its own.');
+  }
+
+  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+  const stem = path.slice(dir.length).replace(/\.[^.]*$/, '');
+  const v = (name: string, size: number, bytes: Uint8Array, mime = 'image/png'): Variant => ({
+    format: 'fallback',
+    mime,
+    width: size,
+    height: size,
+    path: dir + name,
+    bytes,
+  });
+  base.warnings.push(
+    'Put these files at the top of your site, and change the name in manifest.webmanifest to your site\'s name.',
+  );
+  onProgress(1, 'Done');
+  return {
+    ...base,
+    naturalWidth: full,
+    naturalHeight: full,
+    variants: [
+      v('favicon.ico', 48, ico, 'image/x-icon'),
+      v('apple-touch-icon.png', ICON_SIZES.apple, apple),
+      v('icon-192.png', ICON_SIZES.small, small),
+      v('icon-512.png', full, large),
+      v('icon-maskable-512.png', full, maskable),
+    ],
+    extras: [{ path: dir + 'manifest.webmanifest', bytes: new TextEncoder().encode(iconManifest(stem)) }],
+  };
+}
+
+/** Pixels in all frames together beyond which an animation is not converted. */
+const MAX_ANIMATION_PIXELS = 150_000_000;
+
+/**
+ * An animated GIF becomes an animated WebP at its own size, with the GIF kept
+ * as the fallback (ADR-038). A still picture would lose the animation, so
+ * every other outcome copies the GIF unchanged and says why.
+ */
+async function animatedGif(
+  base: ImageOutcome,
+  path: string,
+  bytes: Uint8Array,
+  settings: ImageSettings,
+  onProgress: Progress,
+): Promise<ImageOutcome> {
+  if (settings.output === 'target') {
+    return { ...base, skipped: 'This GIF is animated, and a size limit cannot be met by an animation without losing frames. It was copied unchanged.' };
+  }
+  if (!settings.formats.webp) {
+    return { ...base, skipped: 'This GIF is animated. Turn on WebP to get an animated WebP - AVIF and a still picture would lose the animation - so it was copied unchanged.' };
+  }
+  let info: ReturnType<typeof gifInfo>;
+  try {
+    info = gifInfo(bytes);
+  } catch {
+    return { ...base, skipped: 'This animated GIF could not be read, so it was copied unchanged.' };
+  }
+  if (info.width * info.height * info.frames > MAX_ANIMATION_PIXELS) {
+    return { ...base, skipped: `This animation is too large to convert in a browser tab (${info.frames} frames of ${info.width}×${info.height}), so it was copied unchanged.` };
+  }
+
+  let webp: Uint8Array;
+  try {
+    webp = await gifToAnimatedWebp(
+      bytes,
+      (rgba, width, height) => encodeWebp(new ImageData(rgba as Uint8ClampedArray<ArrayBuffer>, width, height), settings.quality.webp),
+      (done, total) => onProgress(0.05 + 0.9 * (done / total), `Frame ${done} of ${total}`),
+    );
+  } catch {
+    return { ...base, skipped: 'This animated GIF could not be converted, so it was copied unchanged.' };
+  }
+  if (webp.byteLength >= bytes.byteLength) {
+    return { ...base, skipped: 'An animated WebP came out no smaller than this GIF, so the GIF was kept unchanged.' };
+  }
+
+  const { width, height } = info;
+  const variants: Variant[] = [
+    { format: 'webp', mime: 'image/webp', width, height, path: variantPath(path, width, 'image/webp'), bytes: webp },
+  ];
+  if (settings.formats.fallback) {
+    variants.push({ format: 'fallback', mime: 'image/gif', width, height, path: variantPath(path, width, 'image/gif'), bytes });
+  }
+  base.warnings.push(
+    `Kept as an animation (${info.frames} frames) at its own size: an animated WebP` +
+      (settings.formats.fallback ? ', with the original GIF for any browser that cannot show it' : '') +
+      (settings.formats.avif ? '. AVIF is not made for animations.' : '.'),
+  );
+  onProgress(1, 'Done');
+  return { ...base, naturalWidth: width, naturalHeight: height, variants };
+}
+
 const api = {
   /**
    * Bytes one format and quality would produce for one sample image, so the
@@ -677,7 +851,7 @@ const api = {
         previewSource = { key, data };
       }
       const data = previewSource.data;
-      const encoded = await encodeOne(data, format, fallbackMime(mime), quality);
+      const encoded = await encodeOne(data, format, fallbackMime(mime, data), quality);
       return { bytes: encoded.byteLength, width: data.width };
     } catch {
       return undefined;
@@ -706,14 +880,18 @@ const api = {
       warnings: [],
     };
 
-    if (mime === 'image/gif' && isAnimatedGif(bytes)) {
-      // Only a first frame could come out, and a still picture is a different
-      // file, not a smaller one. Leave the animation alone.
-      return {
-        ...base,
-        skipped:
-          'This GIF is animated. Pare cannot make an animated AVIF or WebP, and a still image would lose the animation, so it was copied unchanged.',
-      };
+    // An icon is a still picture; an animated GIF gives its first frame there.
+    if (mime === 'image/gif' && settings.output !== 'icons' && isAnimatedGif(bytes)) {
+      return animatedGif(base, path, bytes, settings, onProgress);
+    }
+
+    if (mime === 'image/tiff') {
+      try {
+        const pages = await tiffPages(bytes);
+        if (pages > 1) base.warnings.push(`This TIFF holds ${pages} pages; only the first was converted.`);
+      } catch {
+        // The decode below says what is wrong, if anything is.
+      }
     }
 
     onProgress(0.05, 'Decoding');
@@ -742,6 +920,8 @@ const api = {
 
     base.naturalWidth = source.width;
     base.naturalHeight = source.height;
+
+    if (settings.output === 'icons') return iconSet(base, path, source, onProgress);
 
     // Under a size limit: one file per format, each fitted (ADR-034).
     if (settings.output === 'target') {
@@ -800,7 +980,7 @@ const api = {
       return { ...base, skipped: 'No output formats are turned on.' };
     }
 
-    const fbMime = fallbackMime(mime);
+    const fbMime = fallbackMime(mime, source);
     const total = widths.length * formats.length;
     const variants: Variant[] = [];
     let done = 0;

@@ -14,9 +14,9 @@ in this pass.
 | Search & sharing | `robots.txt`, `sitemap.xml` and any unknown URL returned the home page with **200** — search engines read HTML as the robots file and see "soft 404s". No share preview (no Open Graph / Twitter tags), no canonical URL | High for discovery | ✅ Real `robots.txt`, `sitemap.xml`, a `404.html` (real 404 status on Cloudflare), Open Graph + Twitter tags with a 1200×630 preview image, canonical link |
 | Installable app | No web app manifest or app icons, so Pare could not be installed even though it already works offline | Medium | ✅ Manifest, 192/512 icons, maskable icon, Apple touch icon — all run through Pare itself (preview 206 → 43 KB, icons −60–80%) |
 | Load speed | First visit: **127 KB** over the network, usable in **1.6 s** on slow 4G, LCP 1.2 s. Good | — | — |
-| Security headers | COOP/COEP, `nosniff`, `no-referrer` present. **No Content-Security-Policy** and no HSTS | Medium | ❌ See 3.1 — needs care, because the checker renders user pages in frames that inherit the page's policy |
+| Security headers | COOP/COEP, `nosniff`, `no-referrer` present. **No Content-Security-Policy** and no HSTS | Medium | ✅ CSP and HSTS (ADR-040), tested under the shipped headers in Chromium, Firefox and WebKit |
 | Deploys | Pushes to `master` do not deploy until the two Cloudflare secrets are set | Medium | ❌ Owner action (STATUS.md) |
-| Mobile | Layout passes at phone width. But results come back as a **zip**, which phones handle badly, and there is no way to send a photo *to* Pare from the gallery | High for phone users | ❌ See 2, P1 |
+| Mobile | Layout passes at phone width. But results come back as a **zip**, which phones handle badly, and there is no way to send a photo *to* Pare from the gallery | High for phone users | ✅ Save and Share per file, Pare in the Android share sheet (ADR-036) |
 
 ## 2. Who uses a tool like this, and what Pare covers
 
@@ -86,9 +86,27 @@ numbers.
 
 ## 4. What I would build next
 
-**Built:** target size (1, ADR-034), task pages (2, ADR-035) and phone results
-(3, ADR-036), on `features/target-tasks-mobile`. Next in line: a sample to try
-(4) and privacy shown (5).
+**All thirteen are built.**
+
+| # | Item | Where |
+|---|---|---|
+| 1 | Under a size, with presets | ADR-034 |
+| 2 | Task pages (six, including "Make a favicon") | ADR-035 |
+| 3 | Save and Share per file; Pare in the Android share sheet | ADR-036 |
+| 4 | "Try it with a sample photo" - runs straight away | `DropZone.tsx` |
+| 5 | "Location removed" on photos whose GPS position is gone, checked on the output bytes | `metadata.ts` `hasGpsLocation` |
+| 6 | Icon set from one picture | ADR-039 |
+| 7 | Content-Security-Policy and HSTS | ADR-040 |
+| 8 | Width and height on images, where trying them on moves nothing | ADR-037 |
+| 9 | TIFF in; animated GIF to animated WebP; JSON and XML minified | ADR-038 |
+| 10 | Hindi, Spanish, Portuguese, Indonesian on the everyday path | ADR-041 |
+| 11 | Command line and GitHub Action | ADR-042 |
+| 12 | Savings report, one self-contained HTML page | `share-report.ts` |
+| 13 | "Copy details for a bug report", with no file names or contents | `diagnostic.ts` |
+
+Still open: ten mixed files at once stall in WebKit under cross-origin isolation
+(found while testing item 7; the policy is not the cause), and translating
+per-file notes and the advanced settings.
 
 **Target size (1), task pages (2) and phone results (3)** together. They turn
 Pare from a developer tool into something anyone with a photo can use, and none

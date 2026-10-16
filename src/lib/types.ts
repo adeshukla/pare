@@ -15,6 +15,10 @@ export type AssetKind =
   | 'js'
   | 'html'
   | 'svg'
+  /** JSON and web app manifests (ADR-038). */
+  | 'json'
+  /** Sitemaps, RSS and Atom feeds, and other XML (ADR-038). */
+  | 'xml'
   /** PHP and other server templates: read for references, never rewritten. */
   | 'template'
   | 'other';
@@ -128,6 +132,8 @@ export type ImageOutcome = {
   skipped?: string;
   /** A width slice that had no widths to encode: contributes nothing when merged. */
   empty?: boolean;
+  /** Files that go with the images but are not images - an icon set's manifest. */
+  extras?: Array<{ path: string; bytes: Uint8Array }>;
 };
 
 /* ------------------------------------------------------------------ *
@@ -169,7 +175,7 @@ export type FontOutcome = {
  * Phase 3 - text
  * ------------------------------------------------------------------ */
 
-export type TextKind = 'css' | 'js' | 'html' | 'svg';
+export type TextKind = 'css' | 'js' | 'html' | 'svg' | 'json' | 'xml';
 
 export type TextOutcome = {
   inputPath: string;

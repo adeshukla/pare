@@ -1,4 +1,6 @@
 import * as Comlink from 'comlink';
+import { scaledHeight } from './ladder';
+import { hasGpsLocation } from './metadata';
 import type { Remote } from 'comlink';
 import { buildGraph, type Graph } from './graph';
 import { contentHash, hashedPath } from './hash';
@@ -15,7 +17,8 @@ import { isTextKind, type Settings } from './optimize';
 import { run, runAll } from './pool';
 import { refsByFile, rewriteReferences } from './rewrite';
 import type { Asset, TextKind, Warning } from './types';
-import { measureImages, type VirtualFile } from './verify';
+import { measureImages, type ImageMeasure, type VirtualFile } from './verify';
+import { addDimensions } from './picture-wrap';
 import {
   imageSensitiveSelector,
   scriptsBlockWrapping,
@@ -88,6 +91,12 @@ export type FolderSettings = {
    * <img> tags point at. ADR-030.
    */
   rightSize: boolean;
+  /**
+   * Give each `<img>` without them a width and height, so the page keeps the
+   * image's space while it loads. Only where trying them on in every rendered
+   * page moves nothing. ADR-037.
+   */
+  dimensions: boolean;
 };
 
 export const FOLDER_DEFAULTS: FolderSettings = {
@@ -98,6 +107,7 @@ export const FOLDER_DEFAULTS: FolderSettings = {
   fonts: false,
   modern: false,
   rightSize: true,
+  dimensions: true,
 };
 
 export type FolderFile = {
@@ -144,6 +154,10 @@ export type FolderResult = {
   pictures: number;
   /** How many images were scaled down to the size they are shown at. */
   resized: number;
+  /** Photos that carried a GPS position the output no longer does. */
+  locationsRemoved: number;
+  /** `<img>` tags given a width and height (ADR-037). */
+  sized: number;
 };
 
 const decoder = new TextDecoder('utf-8', { fatal: false });
@@ -154,6 +168,8 @@ const MIME_BY_KIND: Partial<Record<Asset['kind'], string>> = {
   css: 'text/css',
   js: 'text/javascript',
   svg: 'image/svg+xml',
+  json: 'application/json',
+  xml: 'application/xml',
 };
 
 /**
@@ -213,14 +229,19 @@ export async function optimizeFolder(
   //     nothing but plain <img src> points at qualifies: a stylesheet, a script
   //     or a template could show it larger somewhere Pare never rendered.
   const targets = new Map<string, { width: number }>();
+  /** Images every <img> may be given a width and height for (ADR-037). */
+  const sizable = new Map<string, ImageMeasure>();
+  const rightSizing = folder.images && folder.rightSize;
   const measuring = (async () => {
-    if (!folder.images || !folder.rightSize || templated || originalGraph.entries.length === 0) return;
+    if (!(rightSizing || folder.dimensions) || templated || originalGraph.entries.length === 0) return;
     onStage('Measuring how large each image is shown, at four screen widths…');
     const sizes = await measureImages(toVirtual(surviving), originalGraph.entries);
     for (const [path, m] of sizes) {
       const refs = originalGraph.byTarget.get(path) ?? [];
       const plainImg = refs.length > 0 && refs.every((r) => r.context === '<img src>' && r.resolvable);
-      if (!plainImg || !originalGraph.renameable.has(path) || m.unsure) continue;
+      if (!plainImg || m.unsure) continue;
+      if (folder.dimensions && m.dimsMissing && !m.dimsUnsafe && m.naturalHeight > 0) sizable.set(path, m);
+      if (!rightSizing || !originalGraph.renameable.has(path)) continue;
       // Worth it only when it saves real pixels: 10% of the width or more.
       if (m.natural > m.needed * 1.1) targets.set(path, { width: m.needed });
     }
@@ -356,6 +377,31 @@ export async function optimizeFolder(
   // 2. Re-discover references in whatever the optimizers produced, since
   //    minifying moves every offset. (The original graph was built up front.)
 
+  // 2a. Width and height on <img> tags that lack them, at the image's final
+  //     size, where trying them on moved nothing (ADR-037).
+  let sized = 0;
+  if (sizable.size > 0) {
+    const paths = new Set(optimized.map((f) => f.path));
+    const final = new Map(
+      [...sizable].map(([path, m]) => {
+        const resized = optimized.find((f) => f.path === path)?.resized;
+        return [
+          path,
+          resized
+            ? { width: resized.to, height: scaledHeight(m.natural, m.naturalHeight, resized.to) }
+            : { width: m.natural, height: m.naturalHeight },
+        ] as const;
+      }),
+    );
+    for (const page of optimized) {
+      if (page.kind !== 'html') continue;
+      const result = addDimensions(decoder.decode(page.bytes), page.path, final, (p) => paths.has(p));
+      if (result.added === 0) continue;
+      page.bytes = encoder.encode(result.text);
+      sized += result.added;
+    }
+  }
+
   // 2b. Offer AVIF and WebP through <picture>, where that is safe. ADR-021.
   const modern = folder.modern
     ? wrapPictures(optimized, surviving, copies, originalGraph, warnings)
@@ -460,6 +506,13 @@ export async function optimizeFolder(
     pages: graph.entries,
     pictures: modern.pictures,
     resized: files.filter((f) => f.resized).length,
+    sized,
+    locationsRemoved: assets.filter(
+      (a) =>
+        a.kind === 'image' &&
+        hasGpsLocation(a.bytes) &&
+        files.some((f) => f.path === a.path && !f.siblingOf && !hasGpsLocation(f.bytes)),
+    ).length,
   };
 }
 
