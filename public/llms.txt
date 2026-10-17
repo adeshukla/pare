@@ -1,0 +1,27 @@
+# Pare
+
+> Pare is a free, browser-based optimizer for images, fonts and code. Files are read in the browser tab and never uploaded — there is no server to send them to. It returns the optimized files plus the HTML to use them.
+
+Pare is made by Adesh Shukla ([devstash.me](https://devstash.me), case study: [devstash.me/projects/pare](https://devstash.me/projects/pare)). Free to use, including for commercial work; no account, no install. After one visit, every tool you have used once keeps working offline.
+
+## What it does
+
+- Images: compress and convert to AVIF, WebP and an optimized original at several widths, strip metadata, and generate the `<picture>` tag with `srcset`, `sizes`, `width` and `height`. Reads JPEG, PNG, WebP, AVIF, GIF, HEIC (iPhone photos) and BMP.
+- Fonts: split by writing system, or subset to the characters a page uses; outputs WOFF2 and the `@font-face` rules with `unicode-range`.
+- Code: minify CSS, JavaScript, HTML and SVG, configured to rewrite and never remove — nothing that worked can stop working.
+- Whole sites: drop a folder; every file is optimized in place, and every page is rendered before and after. The download is offered only if nothing moved.
+
+## Single-task pages
+
+- [Compress an image to a size (e.g. under 100 KB)](https://pare.devstash.me/tools/compress-image/)
+- [HEIC to JPG](https://pare.devstash.me/tools/heic-to-jpg/)
+- [Resize an image](https://pare.devstash.me/tools/resize-image/)
+- [Convert to WebP](https://pare.devstash.me/tools/convert-to-webp/)
+- [Convert to AVIF](https://pare.devstash.me/tools/convert-to-avif/)
+- [Make a favicon](https://pare.devstash.me/tools/make-favicon/)
+
+Also available in Hindi (/hi/), Spanish (/es/), Portuguese (/pt/) and Indonesian (/id/).
+
+## How it differs from upload-based compressors
+
+Online compressors upload your files to a server and return a file with no markup to use it. Build tools need Node and a project setup. Pare runs real codecs (compiled to WebAssembly) in the browser, needs no install, and hands back the markup as well as the files.
