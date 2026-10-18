@@ -117,3 +117,14 @@ test('a form photo: exactly 200×230 and under 50 KB, from one tap', async ({ pa
   }, bytes.toString('base64'));
   expect(size).toEqual([200, 230]);
 });
+
+test('notes about a file read in the page language', async ({ page }) => {
+  test.setTimeout(150_000);
+  await page.goto('/hi/tools/compress-image/');
+  await page.locator('input[type=file]').setInputFiles('tests/fixtures/photo.jpg');
+  await page.getByRole('button', { name: /^फ़ॉर्म फ़ोटो/ }).click();
+  await page.getByRole('button', { name: '1 फ़ाइल छोटी करें' }).click();
+  await expect(page.getByLabel('बचत')).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText('1200×800 तस्वीर के बीच से 200×230 काटा गया।')).toBeVisible();
+  await expect(page.getByText(/^Cropped to/)).toHaveCount(0);
+});

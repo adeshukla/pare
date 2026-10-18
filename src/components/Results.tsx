@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { t } from '../i18n';
+import { note } from '../lib/notes';
 import { download, mainOutput } from '../lib/emit';
 import { bytes, reduction } from '../lib/format';
 import { locationRemoved, measure, type Row } from '../lib/optimize';
@@ -174,7 +175,7 @@ function FileRow({ row, index }: { row: Row; index: number }) {
     row.outcome?.variants.reduce((n, v) => n + v.bytes.byteLength, 0) ??
     row.font?.slices.reduce((n, s) => n + s.bytes.byteLength, 0);
 
-  const status = row.state === 'queued' ? t.waiting : row.state === 'running' ? row.label : detail;
+  const status = row.state === 'queued' ? t.waiting : row.state === 'running' ? row.label : note(detail);
 
   return (
     <>
@@ -236,7 +237,7 @@ function FileRow({ row, index }: { row: Row; index: number }) {
       {skipped && (
         <tr className="border-b border-rule">
           <td colSpan={4} className="px-3 pb-3 text-xs text-warn">
-            {skipped}
+            {note(skipped)}
           </td>
         </tr>
       )}
@@ -245,7 +246,7 @@ function FileRow({ row, index }: { row: Row; index: number }) {
         <tr className="border-b border-rule">
           <td colSpan={4} className="px-3 pb-3 text-xs text-warn">
             {warnings.map((w, i) => (
-              <p key={i}>{w}</p>
+              <p key={i}>{note(w)}</p>
             ))}
           </td>
         </tr>

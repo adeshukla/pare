@@ -8,6 +8,12 @@ import { defineConfig, devices } from '@playwright/test';
  * Runs against the dev server so the specs can import src/workers/codecs.ts
  * directly and exercise each codec in isolation, not only through the UI.
  */
+// The built site's port. Another project on this machine may already serve
+// 4173, and with reuseExistingServer the tests would quietly run against it:
+// PARE_PREVIEW_PORT=4183 npx playwright test --project=offline
+const PREVIEW_PORT = process.env.PARE_PREVIEW_PORT ?? '4173';
+const PREVIEW_URL = `http://localhost:${PREVIEW_PORT}`;
+
 export default defineConfig({
   testDir: 'tests/e2e',
   fullyParallel: true,
@@ -49,17 +55,17 @@ export default defineConfig({
     {
       name: 'offline',
       testMatch: /(offline|production)\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4173' },
+      use: { ...devices['Desktop Chrome'], baseURL: PREVIEW_URL },
     },
     {
       name: 'production-firefox',
       testMatch: /production\.spec\.ts/,
-      use: { ...devices['Desktop Firefox'], baseURL: 'http://localhost:4173' },
+      use: { ...devices['Desktop Firefox'], baseURL: PREVIEW_URL },
     },
     {
       name: 'production-webkit',
       testMatch: /production\.spec\.ts/,
-      use: { ...devices['Desktop Safari'], baseURL: 'http://localhost:4173' },
+      use: { ...devices['Desktop Safari'], baseURL: PREVIEW_URL },
     },
   ],
 
@@ -71,8 +77,8 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: 'npx vite build && npx vite preview --port 4173 --strictPort',
-      url: 'http://localhost:4173',
+      command: `npx vite build && npx vite preview --port ${PREVIEW_PORT} --strictPort`,
+      url: PREVIEW_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
     },

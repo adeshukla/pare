@@ -5,7 +5,6 @@ import { isAnimatedGif, stripMetadata } from '../lib/metadata';
 import { fitToSize } from '../lib/target';
 import { minifyJson, minifyXml } from '../lib/data-minify';
 import { gifInfo, gifToAnimatedWebp } from '../lib/animated-webp';
-import { tiffPages } from './tiff';
 import { buildIco, iconManifest, ICON_SIZES, MASKABLE_FILL } from '../lib/icons';
 import { compressedPath, fontSlicePath, splitPath, variantPath } from '../lib/naming';
 import {
@@ -891,6 +890,7 @@ const api = {
 
     if (mime === 'image/tiff') {
       try {
+        const { tiffPages } = await import('./tiff');
         const pages = await tiffPages(bytes);
         if (pages > 1) base.warnings.push(`This TIFF holds ${pages} pages; only the first was converted.`);
       } catch {

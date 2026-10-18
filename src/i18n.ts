@@ -1,3 +1,4 @@
+import type { NoteTranslations } from './lib/notes';
 import { LANGS, type Lang } from './tasks';
 
 /**
@@ -141,6 +142,8 @@ const en = {
   width: "Width",
   height: "Height",
   exactSizeHint: "With both set, the middle of the picture is cropped to that shape. Pare then lowers only quality - the size stays exact - and says so if the limit cannot be met.",
+  /** Worker notes in this language, by shape (src/lib/notes.ts). English needs none. */
+  notes: {} as NoteTranslations,
 };
 
 export type Strings = typeof en;

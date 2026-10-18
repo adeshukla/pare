@@ -49,11 +49,7 @@ test('fonts and code run under the security policy', async ({ page }) => {
   expect(refused).toEqual([]);
 });
 
-test('the security policy refuses nothing Pare does', async ({ page, browserName }) => {
-  // Ten mixed files at once stall in WebKit on the build machine at "Decoding",
-  // with this policy and without it alike - a WebKit load problem, not the
-  // policy, which the tests above cover there. Open in STATUS.md.
-  test.fixme(browserName === 'webkit', 'ten files at once stall in WebKit, with or without the policy');
+test('the security policy refuses nothing Pare does', async ({ page }) => {
   test.setTimeout(300_000);
   const refused: string[] = [];
   page.on('console', (m) => {
