@@ -33,6 +33,12 @@ export type ImageSettings = {
   output: 'responsive' | 'single' | 'target' | 'icons';
   /** For output 'target': every file must come out at or under this many KB. */
   targetKb: number;
+  /**
+   * For output 'target': an exact size as well, as forms ask for ("200×230 px,
+   * under 50 KB"). Both set: the centre is cropped to that shape. Then only
+   * quality moves - the size stays what was asked for.
+   */
+  targetSize: { width: number | null; height: number | null };
   single: {
     width: number | null;
     height: number | null;
@@ -55,6 +61,7 @@ export const DEFAULTS: ImageSettings = {
   lazy: true,
   output: 'responsive',
   targetKb: 100,
+  targetSize: { width: null, height: null },
   single: { width: 1200, height: null, fit: 'contain' },
 };
 

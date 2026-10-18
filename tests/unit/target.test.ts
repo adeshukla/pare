@@ -36,6 +36,16 @@ describe('fitToSize', () => {
     expect(r.scale).toBeLessThan(0.34);
   });
 
+  it('with an exact size asked for, never scales: quality alone, down to 10', async () => {
+    const r = await fitToSize(fake((q) => 20_000 + q * 1000), 40_000, { maxQuality: 80, minQuality: 10, width: 200, minWidth: 200 });
+    expect(r.fits).toBe(true);
+    expect(r.scale).toBe(1);
+    expect(r.quality).toBeLessThanOrEqual(20);
+    const none = await fitToSize(fake(() => 90_000), 40_000, { maxQuality: 80, minQuality: 10, width: 200, minWidth: 200 });
+    expect(none.fits).toBe(false);
+    expect(none.scale).toBe(1);
+  });
+
   it('says so when nothing reachable fits, and returns the smallest it made', async () => {
     const r = await fitToSize(fake(() => 10_000_000), 1_000, { maxQuality: 80, width: 200, minWidth: 64 });
     expect(r.fits).toBe(false);

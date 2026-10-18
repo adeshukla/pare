@@ -112,6 +112,16 @@ const id: Strings = {
   anySize: 'Atau ukuran berapa pun, dalam KB',
   targetExplain:
     'Pare menurunkan kualitas dulu dan baru mengecilkan gambar bila perlu, lalu memberi tahu apa yang diubah. Foto tanpa transparansi menjadi JPEG, format yang diminta kebanyakan formulir unggah.',
+  formPresets: "Untuk formulir",
+  formPhoto: "Foto formulir",
+  signature: "Tanda tangan",
+  passport: "Foto paspor",
+  avatar: "Foto profil",
+  presetsHint: "Setiap formulir berbeda: periksa ukuran yang diminta formulir Anda.",
+  exactSize: "Ukuran persis, dalam piksel (opsional)",
+  width: "Lebar",
+  height: "Tinggi",
+  exactSizeHint: "Jika keduanya diisi, bagian tengah gambar dipotong ke bentuk itu. Lalu Pare hanya menurunkan kualitas — ukurannya tetap persis — dan memberi tahu bila batasnya tidak tercapai.",
 };
 
 export default id;

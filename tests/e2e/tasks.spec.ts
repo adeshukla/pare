@@ -11,8 +11,8 @@ test('fits a photo under 20 KB and saves that one file', async ({ page }) => {
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles('tests/fixtures/photo.jpg'); // 176 KB
   await page.getByRole('radio', { name: 'Under a size' }).check();
-  await page.getByRole('button', { name: '20 KB' }).click();
-  await expect(page.getByRole('button', { name: '20 KB' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '20 KB', exact: true }).click();
+  await expect(page.getByRole('button', { name: '20 KB', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('checkbox', { name: 'AVIF', exact: true }).uncheck();
   await page.getByRole('checkbox', { name: 'WebP', exact: true }).uncheck();
 
@@ -88,4 +88,32 @@ test('a page in another language, and the picker moves between them (ADR-041)', 
   await page.getByRole('combobox', { name: 'Idioma' }).selectOption('en');
   await expect(page).toHaveURL(/\/tools\/compress-image\/$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Make it fit under 100 KB.');
+});
+
+test('a form photo: exactly 200×230 and under 50 KB, from one tap', async ({ page }) => {
+  test.setTimeout(150_000);
+  await page.goto('/tools/compress-image/');
+  await page.locator('input[type=file]').setInputFiles('tests/fixtures/photo.jpg'); // 1200×800
+  await page.getByRole('button', { name: /^Form photo/ }).click();
+  await expect(page.getByRole('button', { name: /^Form photo/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('spinbutton', { name: 'Width' })).toHaveValue('200');
+  await expect(page.getByRole('spinbutton', { name: 'Height' })).toHaveValue('230');
+
+  await page.getByRole('button', { name: 'Optimize 1 file' }).click();
+  await expect(page.getByLabel('Savings')).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText('Cropped to 200×230 from the middle of the 1200×800 picture.')).toBeVisible();
+
+  const [file] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: /^Save photo/ }).click(),
+  ]);
+  const { readFileSync } = await import('node:fs');
+  const bytes = readFileSync(await file.path());
+  expect(bytes.length).toBeLessThanOrEqual(50 * 1024);
+  const size = await page.evaluate(async (b64) => {
+    const data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([data], { type: 'image/jpeg' }));
+    return [bitmap.width, bitmap.height];
+  }, bytes.toString('base64'));
+  expect(size).toEqual([200, 230]);
 });

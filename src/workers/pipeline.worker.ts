@@ -185,6 +185,8 @@ async function fitFormat(
   maxQuality: number,
   warnings: string[],
   onProgress: Progress,
+  /** The size was asked for exactly: reach the limit by quality alone. */
+  fixedSize = false,
 ): Promise<Variant> {
   // A lossless source has no quality dial. Where it has no transparency, JPEG
   // loses nothing that is there and can reach the limit; that is almost always
@@ -216,7 +218,9 @@ async function fitFormat(
       return { bytes: bytes.byteLength, data: bytes, image };
     },
     limit,
-    { maxQuality: lossless ? 100 : maxQuality, lossless, width: source.width },
+    fixedSize
+      ? { maxQuality: lossless ? 100 : maxQuality, lossless, width: source.width, minQuality: 10, minWidth: source.width }
+      : { maxQuality: lossless ? 100 : maxQuality, lossless, width: source.width },
   );
 
   const { image, data } = fitted.result;
@@ -930,11 +934,26 @@ const api = {
       // A width slice (ADR-032) has nothing to do here: one width per format.
       if (settings.slice && settings.slice.index > 0) return { ...base, empty: true };
       const limit = Math.max(1, Math.round(settings.targetKb * 1024));
+      // An exact size first, when one was asked for; then only quality moves.
+      const box = settings.targetSize ?? { width: null, height: null };
+      const fixedSize = Boolean(box.width || box.height);
+      let picture = source;
+      if (fixedSize) {
+        picture = await singleSize(source, { ...box, fit: box.width && box.height ? 'cover' : 'contain' });
+        const short = (box.width && picture.width < box.width) || (box.height && picture.height < box.height);
+        if (short) {
+          base.warnings.push(
+            `This picture is smaller than ${box.width ?? 'any'}×${box.height ?? 'any'}, so it came out ${picture.width}×${picture.height}: Pare never enlarges a picture.`,
+          );
+        } else if (box.width && box.height && source.width * box.height !== source.height * box.width) {
+          base.warnings.push(`Cropped to ${box.width}×${box.height} from the middle of the ${source.width}×${source.height} picture.`);
+        }
+      }
       const variants: Variant[] = [];
       for (const format of formats) {
         try {
           variants.push(
-            await fitFormat(path, source, format, mime, bytes.byteLength, limit, settings.quality[format], base.warnings, onProgress),
+            await fitFormat(path, picture, format, mime, bytes.byteLength, limit, settings.quality[format], base.warnings, onProgress, fixedSize),
           );
         } catch {
           base.warnings.push(`Could not make the ${formatLabel(format)} version of this image.`);

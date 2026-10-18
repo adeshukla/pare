@@ -118,6 +118,16 @@ const pt: Strings = {
   anySize: 'Ou qualquer peso, em KB',
   targetExplain:
     'O Pare reduz a qualidade primeiro e diminui a imagem só se precisar, e depois diz o que mudou. Uma foto sem transparência sai em JPEG, que é o que a maioria dos formulários pede.',
+  formPresets: "Para um formulário",
+  formPhoto: "Foto para formulário",
+  signature: "Assinatura",
+  passport: "Foto de passaporte",
+  avatar: "Foto de perfil",
+  presetsHint: "Cada formulário é diferente: confira o tamanho que o seu pede.",
+  exactSize: "Tamanho exato, em pixels (opcional)",
+  width: "Largura",
+  height: "Altura",
+  exactSizeHint: "Com os dois, o centro da imagem é cortado nesse formato. Depois o Pare só reduz a qualidade — o tamanho fica exato — e avisa se não couber no limite.",
 };
 
 export default pt;

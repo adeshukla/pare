@@ -68,6 +68,19 @@ function positive(text: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/**
+ * Common shapes a form asks for, as starting points: the dimensions and limits
+ * Indian exam and job portals most often state for a photo and a signature, a
+ * 35×45 mm passport photo at 300 dpi, and a square profile picture. The panel
+ * says forms differ.
+ */
+const FORM_PRESETS = [
+  { key: 'formPhoto', kb: 50, width: 200, height: 230 },
+  { key: 'signature', kb: 20, width: 140, height: 60 },
+  { key: 'passport', kb: 100, width: 413, height: 531 },
+  { key: 'avatar', kb: 100, width: 400, height: 400 },
+] as const;
+
 /** One-click limits people are most often given. */
 const TARGET_PRESETS: Array<[string, number]> = [
   ['20 KB', 20],
@@ -345,6 +358,65 @@ function ImageControls({
               />
             </label>
             <span className="text-xs text-muted">{t.targetExplain}</span>
+            <div>
+              <span className="text-sm font-medium">{t.formPresets}</span>
+              <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={t.formPresets}>
+                {FORM_PRESETS.map(({ key, kb, width, height }) => {
+                  const on =
+                    settings.targetKb === kb &&
+                    settings.targetSize?.width === width &&
+                    settings.targetSize?.height === height;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => patch({ targetKb: kb, targetSize: { width, height } })}
+                      className={`chip cursor-pointer transition-colors ${
+                        on
+                          ? 'border-accent bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] font-semibold text-ink'
+                          : 'hover:border-[color-mix(in_srgb,var(--color-ink)_35%,transparent)]'
+                      }`}
+                    >
+                      {t[key]}
+                      <span className="tnum font-normal text-muted">
+                        {width}×{height} · {kb} KB
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="mt-1.5 block text-xs text-muted">{t.presetsHint}</span>
+            </div>
+            <div>
+              <span className="text-sm font-medium">{t.exactSize}</span>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                {(['width', 'height'] as const).map((side) => (
+                  <label key={side} className="block text-sm font-medium">
+                    {t[side]}
+                    <input
+                      key={String(settings.targetSize?.[side])}
+                      type="number"
+                      min={1}
+                      inputMode="numeric"
+                      placeholder="auto"
+                      defaultValue={settings.targetSize?.[side] ?? ''}
+                      onBlur={(e) =>
+                        patch({
+                          targetSize: {
+                            width: settings.targetSize?.width ?? null,
+                            height: settings.targetSize?.height ?? null,
+                            [side]: positive(e.target.value),
+                          },
+                        })
+                      }
+                      className="field"
+                    />
+                  </label>
+                ))}
+              </div>
+              <span className="mt-1.5 block text-xs text-muted">{t.exactSizeHint}</span>
+            </div>
           </div>
         ) : settings.output === 'single' ? (
           <div className="rise grid gap-3">

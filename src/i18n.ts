@@ -131,6 +131,16 @@ const en = {
   anySize: 'Or any size, in KB',
   targetExplain:
     'Pare lowers quality first and makes the picture smaller only if it has to, then tells you what it changed. A photo without transparency comes out as JPEG, which is what most upload forms ask for.',
+  formPresets: "For a form",
+  formPhoto: "Form photo",
+  signature: "Signature",
+  passport: "Passport photo",
+  avatar: "Profile picture",
+  presetsHint: "Forms differ: check the size yours asks for.",
+  exactSize: "Exact size, in pixels (optional)",
+  width: "Width",
+  height: "Height",
+  exactSizeHint: "With both set, the middle of the picture is cropped to that shape. Pare then lowers only quality - the size stays exact - and says so if the limit cannot be met.",
 };
 
 export type Strings = typeof en;

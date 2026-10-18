@@ -312,6 +312,9 @@
     background: var(--color-raised);
     border: 1px solid var(--color-rule);
     isolation: isolate;
+    /* Never wider than its column: a longer label (a translation, ADR-041)
+       wraps onto two lines instead of pushing the card wider. */
+    max-width: 100%;
   }
   .seg::before {
     content: "";
@@ -335,7 +338,10 @@
     font-weight: 500;
     color: var(--color-muted);
     cursor: pointer;
-    white-space: nowrap;
+    min-width: 0;
+    line-height: 1.25;
+    display: grid;
+    place-items: center;
     transition: color 0.2s;
   }
   .seg label:has(input:checked) { color: var(--color-ink); }
