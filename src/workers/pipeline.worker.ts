@@ -49,6 +49,7 @@ import {
   placeholder,
   resize,
 } from './codecs';
+import { CodecUnavailable } from './once';
 
 /**
  * The one worker type in the pool. It inspects files and, for images, runs the
@@ -475,7 +476,17 @@ async function optimizeText(
 
   try {
     const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    const minified = await minifyByKind(source, kind, path, settings);
+    let minified: MinifiedText | undefined;
+    try {
+      minified = await minifyByKind(source, kind, path, settings);
+    } catch (e) {
+      // A minifier that could not start may start a moment later, once other
+      // files have let go of their memory. One more try, then say so.
+      if (!(e instanceof CodecUnavailable)) throw e;
+      onProgress(0.2, 'Waiting for memory');
+      await new Promise((r) => setTimeout(r, 2000));
+      minified = await minifyByKind(source, kind, path, settings);
+    }
 
     if (minified === undefined) {
       skipped = 'Minifying ' + kind.toUpperCase() + ' is turned off, so this was copied unchanged.';
@@ -496,7 +507,9 @@ async function optimizeText(
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    skipped = /not supported yet|configured target environment/i.test(message)
+    skipped = e instanceof CodecUnavailable
+      ? 'The minifier for this kind of file could not start in this tab - usually a sign the device is short of memory. The file is fine and was copied unchanged; run it again with fewer files to minify it.'
+      : /not supported yet|configured target environment/i.test(message)
       ? 'This file uses JavaScript newer than the browsers you chose can run, and it cannot be rewritten for them, so it was copied unchanged. Choose a newer browser range to minify it.'
       : 'Could not read this file as text, so it was copied unchanged. It may use an unusual encoding, or contain a syntax error.';
   }
@@ -1127,4 +1140,15 @@ const api = {
 
 export type PipelineApi = typeof api;
 
-Comlink.expose(api);
+// Once per worker, however many times this script runs. The bundler keeps its
+// runtime helpers in this entry chunk, so each lazily loaded codec chunk
+// imports this file back - and WebKit evaluates a worker's own script a second
+// time when it does. Exposed twice, every request was answered by two copies:
+// double the work and memory, and two copies of esbuild starting at once
+// ("Cannot call initialize more than once"), so JavaScript and HTML went
+// unminified in Safari.
+const scope = self as unknown as { pareExposed?: boolean };
+if (!scope.pareExposed) {
+  scope.pareExposed = true;
+  Comlink.expose(api);
+}

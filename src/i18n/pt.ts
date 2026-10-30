@@ -97,7 +97,9 @@ const pt: Strings = {
   savingsLabel: 'Economia',
   visitorDownloads: 'O que um visitante baixa',
   savingsExplain: (zip) =>
-    `Para imagens, o menor formato em tamanho cheio que o navegador lê; para fontes divididas, só o primeiro arquivo; para código, a menor cópia comprimida. O zip tem ${zip} com todas as variantes — ninguém baixa tudo.`,
+    `Para imagens, o menor formato em tamanho cheio que o navegador lê; para fontes divididas, só o primeiro arquivo; para código, o próprio arquivo minificado. O zip tem ${zip} com todas as variantes — ninguém baixa tudo.`,
+  compressedNote: (size) =>
+    `Se o seu servidor também comprimir o código (gzip ou brotli), enviaria cerca de ${size}. É uma estimativa: os arquivos que você salva não têm esse tamanho, e as cópias .gz e .br só ajudam quando o servidor está configurado para enviá-las.`,
   locationsRemoved: (n) =>
     n === 1
       ? 'Uma foto guardava o lugar onde foi tirada. Essa localização não está no arquivo que você baixa.'

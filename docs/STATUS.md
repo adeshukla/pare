@@ -12,7 +12,7 @@ Updated: 2026-10-13
 | **Phase 5 — Verification** | ✅ complete (web-vitals not shipped — ADR-019) |
 | Live at | **https://pare.devstash.me** (also https://pare-3sm.pages.dev) — production from `098a02d` (2026-10-13), deployed with `wrangler pages deploy`. |
 | Initial JS | **123.6 KB gzipped** of a 150 KB budget |
-| Tests | 269 unit (Vitest) + 110 browser tests × Chromium, Firefox, WebKit on the dev server, plus the built site with production headers (offline and the share target in Chromium, a photo in all three engines) — all passing, except one test marked `fixme` in WebKit (see Known gaps); 4 skips where an engine cannot synthesise a drop or paste |
+| Tests | 269 unit (Vitest) + 110 browser tests × Chromium, Firefox, WebKit on the dev server, plus the built site with production headers (offline and the share target in Chromium, a photo in all three engines) — all passing; 4 skips where an engine cannot synthesise a drop or paste |
 
 > **Phases 2 through 5 were built ahead of the Phase 1 launch gate**, at the
 > project owner's direction. The gate that was **not** relaxed is the one that
@@ -207,7 +207,8 @@ right-sized images · ADR-031 unused-CSS report · ADR-032 big images in paralle
 ADR-033 each codec fetched once · ADR-034 under a size · ADR-035 task pages ·
 ADR-036 Save, Share and the share target · ADR-037 width and height on images · ADR-038 TIFF,
 animated WebP, JSON and XML · ADR-039 icon sets · ADR-040 CSP and HSTS · ADR-041 languages ·
-ADR-042 command line and GitHub Action
+ADR-042 command line and GitHub Action · ADR-043 exact size with a size limit ·
+ADR-044 translations load with their page · ADR-045 the saved file is the "after" size · ADR-046 which gaps are the platform's · ADR-047 Firefox WASM speed, measured
 
 ---
 
@@ -224,24 +225,14 @@ ADR-042 command line and GitHub Action
 
 ## Known gaps
 
-- **Ten mixed files at once stall in WebKit** on the production build (with its
-  cross-origin isolation), at "Decoding", with the security policy and without
-  it. One photo, or a font with code, finishes in seconds. Found on a machine
-  short of memory, so it may be load rather than a bug - but until it is
-  understood, `production.spec.ts` marks that test `fixme` in WebKit. Next step:
-  run it on a machine with memory to spare, then with fewer workers.
-- **Per-file notes, advanced settings and whole-site mode are English** on the
-  translated pages (ADR-041), which say so.
-
+- **Advanced settings, whole-site mode and rarer per-file notes are English** on
+  the translated pages (ADR-041), which say so. The common notes are translated.
 - **WebKit has no `OffscreenCanvas` in workers**, so every image decode there
   falls through to the WASM decoders rather than the browser's own. It works and
   the output is identical, but it costs a few hundred KB of extra download and is
   slower. That fallback is now exercised directly in all three engines
-  (`codecs.spec.ts`). `AGENTS.md`'s "main-thread canvas" fallback is not built,
-  because the decode runs in a worker where no such canvas exists.
-- **Firefox is roughly 7× slower** through the image pipeline — 80s for twenty
-  photographs against 11s in Chromium. Correctness is identical; it is WASM
-  encode throughput, not a bug. Worth knowing before quoting timings.
+  (`codecs.spec.ts`). The "main-thread canvas" fallback in `AGENTS.md` is not built, because the decode runs in a worker where no such canvas exists.
+- **Firefox is 5–11× slower per core** at every WASM codec (AVIF 29 s against 2.6 s for one crop; plain JavaScript there is only 1.8× slower). Measured and tried against thread, tile, SIMD and compiler settings in ADR-047: none helps, so it stays. Output is byte-identical. Worth knowing before quoting timings.
 - **Verification runs with scripts disabled**, so a JavaScript-assembled layout is
   compared in its pre-script state (ADR-017). Module bundling is therefore
   unverifiable and opt-in, and site-mode `<picture>` refuses any page whose
@@ -250,10 +241,7 @@ ADR-042 command line and GitHub Action
   selector anywhere turns it off for the whole site, and one external script
   turns it off for that page. Expect it to refuse on many real themes; the
   warning list says exactly why each time.
-- **The largest site tested is 40 generated pages** (`scale.spec.ts`: 13–20s in
-  Chromium, 37–60s in WebKit, 91s in Firefox). Still no real theme with hundreds
-  of assets. Run all three engines at once on one machine and the slower two time
-  out; run them per engine, as CI does with one worker.
+- **The largest site tested is 200 generated pages and 300 images** (`scale.spec.ts`: 54s in Chromium; the 40-page test takes 13–20s there, 37–60s in WebKit and 91s in Firefox). Still no real theme. Run the engines one at a time, as CI does with one worker.
 - **Memory is the ceiling for very large sites.** Inputs and outputs are all
   held in memory until the download. The zip no longer needs one archive-sized
   buffer, but streaming each file out as it finishes is still to do

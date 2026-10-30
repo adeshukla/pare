@@ -111,7 +111,9 @@ const en = {
   savingsLabel: 'Savings',
   visitorDownloads: 'What a visitor downloads',
   savingsExplain: (zip: string) =>
-    `For images the smallest full-size format their browser reads, for split fonts the first file only, for code the smallest compressed copy. The zip holds ${zip} across every variant — nobody downloads all of it.`,
+    `For images the smallest full-size format their browser reads, for split fonts the first file only, for code the minified file itself. The zip holds ${zip} across every variant — nobody downloads all of it.`,
+  compressedNote: (size: string) =>
+    `If your server also compresses code (gzip or brotli), it would send about ${size} instead. That is an estimate - the files you save are not that size, and the .gz and .br copies only help once your server is set up to send them.`,
   locationsRemoved: (n: number) =>
     n === 1
       ? 'One photo held the place it was taken. That location is not in the file you download.'

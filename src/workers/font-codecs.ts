@@ -7,6 +7,8 @@
  * need. A wrapper would be more code, not less.
  */
 
+import { loadOnce } from './once';
+
 type HbExports = {
   memory: WebAssembly.Memory;
   malloc: (size: number) => number;
@@ -28,8 +30,6 @@ type HbExports = {
 /** HB_MEMORY_MODE_WRITABLE - harfbuzz may modify the buffer we handed it. */
 const MEMORY_MODE_WRITABLE = 2;
 
-let hbPromise: Promise<HbExports> | undefined;
-
 /** Load the font tools now, for warmCodecs. */
 export async function warmFont(kind: string): Promise<void> {
   if (kind === 'harfbuzz') await loadHarfbuzz();
@@ -39,14 +39,11 @@ export async function warmFont(kind: string): Promise<void> {
   }
 }
 
-function loadHarfbuzz(): Promise<HbExports> {
-  hbPromise ??= (async () => {
-    const { default: url } = await import('harfbuzzjs/dist/harfbuzz-subset.wasm?url');
-    const { instance } = await WebAssembly.instantiateStreaming(fetch(url), {});
-    return instance.exports as unknown as HbExports;
-  })();
-  return hbPromise;
-}
+const loadHarfbuzz = loadOnce('harfbuzz', async (): Promise<HbExports> => {
+  const { default: url } = await import('harfbuzzjs/dist/harfbuzz-subset.wasm?url');
+  const { instance } = await WebAssembly.instantiateStreaming(fetch(url), {});
+  return instance.exports as unknown as HbExports;
+});
 
 /**
  * Keep only the given codepoints. Everything harfbuzz needs to keep the font

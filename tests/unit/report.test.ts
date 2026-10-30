@@ -151,10 +151,11 @@ describe('summarise - fonts', () => {
 });
 
 describe('summarise - text', () => {
-  it('reports the transport size, which is what a configured server sends', () => {
+  it('reports the saved file as served, and the compressed size only as an estimate', () => {
     const line = lineFor([row({ text: text() })], 'css')!;
     expect(line.before).toBe(5000);
-    expect(line.served).toBe(900); // the gzip sibling
+    expect(line.served).toBe(3000); // the minified file Save gives you
+    expect(line.compressed).toBe(900); // what a compressing server would send
     expect(line.emitted).toBe(3900); // minified plus the sibling
   });
 
@@ -186,7 +187,8 @@ describe('summarise - across kinds', () => {
 
     expect(report.lines.map((l) => l.kind)).toEqual(['image', 'font', 'css']);
     expect(report.bytesBefore).toBe(1000 + 15000 + 5000);
-    expect(report.bytesServed).toBe(120 + 3000 + 900);
+    expect(report.bytesServed).toBe(120 + 3000 + 3000);
+    expect(report.bytesCompressed).toBe(120 + 3000 + 900);
     expect(report.files).toBe(3);
   });
 

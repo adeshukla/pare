@@ -9,6 +9,8 @@
  * published package - see ADR-026 for what that means for Pare's licence.
  */
 
+import { loadOnce } from './once';
+
 type HeifImage = {
   get_width(): number;
   get_height(): number;
@@ -21,26 +23,21 @@ type HeifImage = {
 
 type LibHeif = { HeifDecoder: new () => { decode(bytes: Uint8Array): HeifImage[] } };
 
-let ready: Promise<LibHeif> | undefined;
-
 /** Load libheif now, for warmCodecs. */
 export async function warmHeic(): Promise<void> {
   await load();
 }
 
-function load(): Promise<LibHeif> {
-  ready ??= (async () => {
-    const { default: factory } = (await import('libheif-js/libheif-wasm/libheif-bundle.mjs')) as {
-      default: () => LibHeif | Promise<LibHeif>;
-    };
-    const lib = await factory();
-    // Some emscripten builds finish instantiating after returning; wait for it.
-    const pending = (lib as unknown as { ready?: Promise<unknown> }).ready;
-    if (pending) await pending;
-    return lib;
-  })();
-  return ready;
-}
+const load = loadOnce('libheif', async (): Promise<LibHeif> => {
+  const { default: factory } = (await import('libheif-js/libheif-wasm/libheif-bundle.mjs')) as {
+    default: () => LibHeif | Promise<LibHeif>;
+  };
+  const lib = await factory();
+  // Some emscripten builds finish instantiating after returning; wait for it.
+  const pending = (lib as unknown as { ready?: Promise<unknown> }).ready;
+  if (pending) await pending;
+  return lib;
+});
 
 /** The primary image of a HEIC/HEIF file, as RGBA. Orientation is applied by libheif. */
 export async function decodeHeic(bytes: Uint8Array): Promise<ImageData> {

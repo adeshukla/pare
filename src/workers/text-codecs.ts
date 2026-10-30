@@ -16,12 +16,11 @@ import { TARGETS, type JsLevel, type TargetPreset } from '../lib/settings';
 import type * as BrotliWasm from 'brotli-wasm';
 import type * as Esbuild from 'esbuild-wasm/esm/browser';
 import type * as LightningCss from 'lightningcss-wasm';
+import { loadOnce } from './once';
 
 /* ------------------------------------------------------------------ *
  * CSS - Lightning CSS
  * ------------------------------------------------------------------ */
-
-let lightningReady: Promise<typeof LightningCss> | undefined;
 
 /** Load one text tool now, for warmCodecs. */
 export async function warmText(kind: string): Promise<void> {
@@ -33,14 +32,11 @@ export async function warmText(kind: string): Promise<void> {
   else if (kind === 'brotli') await (await import('brotli-wasm')).default;
 }
 
-async function loadLightning() {
-  lightningReady ??= (async () => {
-    const mod = await import('lightningcss-wasm');
-    await mod.default();
-    return mod;
-  })();
-  return lightningReady;
-}
+const loadLightning = loadOnce('Lightning CSS', async (): Promise<typeof LightningCss> => {
+  const mod = await import('lightningcss-wasm');
+  await mod.default();
+  return mod;
+});
 
 /** Lightning CSS targets are `major << 16 | minor << 8`. */
 function encodeTargets(preset: TargetPreset): Record<string, number> {
@@ -121,21 +117,16 @@ function withSourceContent(map: string, filename: string, source: string): strin
  * JS - esbuild
  * ------------------------------------------------------------------ */
 
-let esbuildReady: Promise<typeof Esbuild> | undefined;
-
-async function loadEsbuild() {
-  esbuildReady ??= (async () => {
-    // The package root resolves to the Node build, which has no `initialize`.
-    // The browser ESM entry has to be named explicitly.
-    const mod = await import('esbuild-wasm/esm/browser.js');
-    const { default: wasmURL } = await import('esbuild-wasm/esbuild.wasm?url');
-    // worker:false because this already runs inside our own worker; letting
-    // esbuild spawn another would put a second thread under a pool slot.
-    await mod.initialize({ wasmURL, worker: false });
-    return mod;
-  })();
-  return esbuildReady;
-}
+const loadEsbuild = loadOnce('esbuild', async (): Promise<typeof Esbuild> => {
+  // The package root resolves to the Node build, which has no `initialize`.
+  // The browser ESM entry has to be named explicitly.
+  const mod = await import('esbuild-wasm/esm/browser.js');
+  const { default: wasmURL } = await import('esbuild-wasm/esbuild.wasm?url');
+  // worker:false because this already runs inside our own worker; letting
+  // esbuild spawn another would put a second thread under a pool slot.
+  await mod.initialize({ wasmURL, worker: false });
+  return mod;
+});
 
 /** A file using import/export has its own scope; a classic script does not. */
 export function isModule(source: string): boolean {

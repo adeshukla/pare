@@ -9,8 +9,8 @@ import { defineConfig, devices } from '@playwright/test';
  * directly and exercise each codec in isolation, not only through the UI.
  */
 // The built site's port. Another project on this machine may already serve
-// 4173, and with reuseExistingServer the tests would quietly run against it:
-// PARE_PREVIEW_PORT=4183 npx playwright test --project=offline
+// 4173; the run then stops with "port in use" rather than test the wrong site.
+// Move it: PARE_PREVIEW_PORT=4183 npx playwright test --project=offline
 const PREVIEW_PORT = process.env.PARE_PREVIEW_PORT ?? '4173';
 const PREVIEW_URL = `http://localhost:${PREVIEW_PORT}`;
 
@@ -79,7 +79,10 @@ export default defineConfig({
     {
       command: `npx vite build && npx vite preview --port ${PREVIEW_PORT} --strictPort`,
       url: PREVIEW_URL,
-      reuseExistingServer: !process.env.CI,
+      // Never reuse: a server already there is another project's, or a
+      // preview left over from an earlier run serving an older build - and on
+      // Windows stopping npx can leave that child running. Fail loudly instead.
+      reuseExistingServer: false,
       timeout: 180_000,
     },
   ],

@@ -1162,9 +1162,7 @@ HSTS for a year.
 as Cloudflare does, so the production tests run under the shipped policy. A test
 runs every codec and a whole-site check and fails on any refusal, and another
 runs the WOFF2 font and the minifiers on their own. All three engines give a
-worker its own script's policy; verified in Chromium, Firefox and WebKit. In
-WebKit the ten-file test is marked as a known problem: ten mixed files at once
-stall there at "Decoding" on the build machine, with this policy and without it.
+worker its own script's policy; verified in Chromium, Firefox and WebKit. 
 
 **Consequence.** A user's page that names a file on another origin still does
 not load it in the checker - cross-origin isolation already blocked that, on
@@ -1211,3 +1209,96 @@ against each commit's own build.
 **Rejected:** porting the engine to Node. The codecs, the DOM parsing and above
 all the verifier, which renders pages, are browser-native; a port would be a
 second engine to keep in step with the first.
+
+## ADR-043 — An exact size and a size limit together
+
+**Status:** accepted. Extends ADR-034.
+
+**Context.** Exam and job portals rarely ask for "under 50 KB" alone; they ask
+for "200×230 pixels, under 50 KB", and for a signature at 140×60 under 20 KB.
+Under a size could not do both, and One size could not promise a file size.
+
+**Decision.** Under a size takes an optional width and height of its own
+(`targetSize`, separate from One size's box, so neither mode surprises the
+other). With both set, the centre of the picture is cropped to that shape and
+scaled to it - never enlarged. The size is then fixed: only quality moves, down
+to 10 rather than 30, and if even that will not fit, the row says so instead of
+shrinking the picture below what was asked for. Four one-tap presets - a form
+photo (200×230, 50 KB), a signature (140×60, 20 KB), a passport photo (35×45 mm
+at 300 dpi: 413×531, 100 KB) and a profile picture (400×400, 100 KB) - are
+starting points, and the panel says forms differ.
+
+## ADR-044 — Translations load with their page; notes are translated by shape
+
+**Status:** accepted. Extends ADR-041.
+
+Each language's words are a chunk of their own, fetched before the first render
+on a page in that language; English stays in the main bundle. First load fell
+from 123.6 to 116.7 KB gzipped.
+
+Notes about a file come from the worker in English, where the language is not
+known. Rather than thread the language through every message, `src/lib/notes.ts`
+recognises the common ones by their shape and rewrites them in the page's
+language. A note it does not recognise - a rare one, or one whose wording
+changed - stays in English: never a wrong translation, at worst an untranslated
+one.
+
+## ADR-045 — The "after" size of code is the file you save
+
+**Status:** accepted. Corrects the code half of ADR-009.
+
+A CSS or JS row used to show the size of its smallest `.gz` or `.br` copy as
+"After", and the headline counted code the same way. A 300 KB minified
+stylesheet read as 40 KB, but the Save button gives you the minified file: 300 KB.
+The compressed copies are real files in the zip, and a browser gets them only
+if the server is configured to send them (Law 5: report what happened, not what
+could).
+
+**Decision.** "After" and the headline use the minified file's own size. The
+compressed size appears separately and labelled as an estimate: under the row
+("40 KB once a server compresses it") and as one sentence under the headline. The
+report carries both (`bytesServed`, `bytesCompressed`).
+
+## ADR-046 — Gaps that are the platform's, and the ones that were ours
+
+**Status:** accepted.
+
+Closed: the test preview port can no longer be another project's (the run
+refuses it, `reuseExistingServer: false`); site mode is now exercised at 200
+pages and 300 images (54 s in Chromium, `scale.spec.ts`).
+
+Not closed, because they are not defects Pare can fix from inside a page:
+WebKit has no `OffscreenCanvas` in workers, Firefox's WASM throughput is what
+it is, and a genuine out-of-memory cannot be provoked in CI. HEIC stays
+untouched in site mode - converting it would change what Chromium shows on a page
+that, in Chromium, currently shows nothing, which the before-and-after check
+cannot compare fairly (ADR-026).
+
+## ADR-047 — Firefox's WASM speed was measured, and is not a setting
+
+**Status:** accepted. Explains the Firefox line in ADR-046.
+
+Each codec was timed on one 1600 px crop of a real photo (Windows, 12 cores,
+Playwright's Chromium, Firefox 153 and WebKit; single thread):
+
+| | Chromium | Firefox | WebKit |
+|---|---|---|---|
+| libheif decode | 0.4 s | 1.3 s | 0.5 s |
+| resize | 0.7 s | 3.5 s | 0.6 s |
+| AVIF (speed 7) | 2.6 s | 28.8 s | 2.9 s |
+| WebP | 0.4 s | 4.7 s | 0.6 s |
+| MozJPEG | 0.5 s | 2.5 s | 0.7 s |
+| PNG + OxiPNG | 7.3 s | 29.5 s | 6.6 s |
+
+Plain JavaScript in the same Firefox is only 1.8× slower, so the browser is
+fine; WebAssembly in it is 5-11× slower, for the scalar and the SIMD builds
+alike. Turning off lazy tiering and forcing the optimizing compiler changed
+nothing. Whole-run timings of a real HEIC photo and eight JPEGs under four
+AVIF set-ups - jsquash's own choice, single-thread, multi-thread, and
+multi-thread with tiles - gave Firefox 34/31 s, 50/34 s, 37/34 s and 28/32 s,
+and Chromium 6-8 s throughout. Tiles cost bytes for a gain inside the noise.
+
+**Decision.** No change to the encoders. The cost is the browser's WebAssembly
+throughput; Pare already spreads work over every core, starts loading codecs on
+drop, and picks the AVIF speed that is smallest per second (ADR-032). A Firefox
+visitor waits longer for the same bytes; the page does not say otherwise.

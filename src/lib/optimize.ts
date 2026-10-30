@@ -1,4 +1,5 @@
 import * as Comlink from 'comlink';
+import { bytes } from './format';
 import { hasGpsLocation, isAnimatedGif } from './metadata';
 import { ICON_SNIPPET } from './icons';
 import { needsFor } from './needs';
@@ -76,8 +77,10 @@ export type KindLine = {
   kind: ReportKind;
   count: number;
   before: number;
-  /** What a visitor downloads. */
+  /** What a visitor downloads from the files you save, as they are. */
   served: number;
+  /** Code only: what a server would send if it compressed the file. An estimate; the saved file is not this size. */
+  compressed: number;
   /** Every file emitted for this kind. */
   emitted: number;
   skipped: number;
@@ -88,6 +91,8 @@ export type Report = {
   lines: KindLine[];
   bytesBefore: number;
   bytesServed: number;
+  /** `bytesServed` with code counted at its compressed size - what a server that compresses would send. */
+  bytesCompressed: number;
   bytesEmitted: number;
   skipped: number;
   warnings: number;
@@ -119,12 +124,16 @@ export function measure(row: Row): { before: number; after?: number; detail: str
 
   const text = row.text;
   if (text) {
+    // "After" is the file Save gives you. The compressed copies are separate
+    // files, and a browser only receives them if the server is set up to send them.
     const encodings = text.siblings.map((s) => (s.encoding === 'gzip' ? 'gzip' : 'brotli'));
-    return {
-      before: text.bytesBefore,
-      after: text.bytesTransport,
-      detail: encodings.length > 0 ? 'minified + ' + encodings.join(' + ') : 'minified',
-    };
+    const detail =
+      encodings.length > 0 && text.bytesTransport < text.bytesAfter
+        ? `${bytes(text.bytesTransport)} once a server compresses it (${encodings.join(' + ')} copies are in the zip)`
+        : text.skipped
+          ? ''
+          : 'minified';
+    return { before: text.bytesBefore, after: text.bytesAfter, detail };
   }
 
   const raw = row.inspection?.rawBytes ?? row.asset.bytes.byteLength;
@@ -144,7 +153,7 @@ export function locationRemoved(row: Row): boolean {
 }
 
 function blank(kind: ReportKind): KindLine {
-  return { kind, count: 0, before: 0, served: 0, emitted: 0, skipped: 0 };
+  return { kind, count: 0, before: 0, served: 0, compressed: 0, emitted: 0, skipped: 0 };
 }
 
 export function summarise(rows: Row[]): Report {
@@ -204,8 +213,9 @@ export function summarise(rows: Row[]): Report {
       l.before += text.bytesBefore;
       warnings += text.warnings.length;
       if (text.skipped) l.skipped++;
-      // A server sends the smallest encoding it has; that is what a visitor pays.
-      l.served += text.bytesTransport;
+      // The saved file is what a visitor gets unless a server compresses it.
+      l.served += text.bytesAfter;
+      l.compressed += text.bytesTransport;
       l.emitted +=
         text.bytesAfter +
         text.siblings.reduce((n, s) => n + s.bytes.byteLength, 0) +
@@ -221,6 +231,7 @@ export function summarise(rows: Row[]): Report {
     lines: out,
     bytesBefore: out.reduce((n, l) => n + l.before, 0),
     bytesServed: out.reduce((n, l) => n + l.served, 0),
+    bytesCompressed: out.reduce((n, l) => n + (l.compressed || l.served), 0),
     bytesEmitted: out.reduce((n, l) => n + l.emitted, 0),
     skipped: out.reduce((n, l) => n + l.skipped, 0),
     warnings,

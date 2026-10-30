@@ -91,7 +91,9 @@ const id: Strings = {
   savingsLabel: 'Penghematan',
   visitorDownloads: 'Yang diunduh pengunjung',
   savingsExplain: (zip) =>
-    `Untuk gambar, format ukuran penuh terkecil yang dibaca browsernya; untuk font yang dipecah, hanya file pertama; untuk kode, salinan terkompresi terkecil. Zip berisi ${zip} untuk semua varian — tidak ada yang mengunduh semuanya.`,
+    `Untuk gambar, format ukuran penuh terkecil yang dibaca browsernya; untuk font yang dipecah, hanya file pertama; untuk kode, file hasil minify itu sendiri. Zip berisi ${zip} untuk semua varian — tidak ada yang mengunduh semuanya.`,
+  compressedNote: (size) =>
+    `Jika server Anda juga mengompresi kode (gzip atau brotli), yang terkirim sekitar ${size}. Ini perkiraan: file yang Anda simpan tidak berukuran segitu, dan salinan .gz serta .br baru berguna jika server Anda diatur untuk mengirimnya.`,
   locationsRemoved: (n) =>
     n === 1
       ? 'Satu foto mencatat tempat foto itu diambil. Lokasi itu tidak ada di file yang Anda unduh.'

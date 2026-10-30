@@ -5,6 +5,13 @@ import { expect, test } from '@playwright/test';
  * (see vite.config.ts) - so this is where Safari and Firefox meet the threaded
  * AVIF encoder exactly as users do.
  */
+// One at a time. Each of these pages loads every codec at once - the ten-file
+// test alone holds esbuild, Lightning CSS and the threaded AVIF encoder - and
+// two of them in parallel exhaust WebKit's memory on the build machine, where
+// the JavaScript minifier then cannot start (it says so, honestly). A person
+// runs one tab of Pare, not two at once.
+test.describe.configure({ mode: 'default' });
+
 test('the production build optimizes a photo', async ({ page, browserName }) => {
   test.setTimeout(200_000);
 

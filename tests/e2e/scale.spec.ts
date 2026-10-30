@@ -121,3 +121,56 @@ test('a forty-page site', async ({ page }) => {
   await expect(verification).toContainText('Checked. 40 pages');
   await expect(page.getByRole('button', { name: 'Download site' })).toBeVisible();
 });
+
+/**
+ * The same test at a size nearer a real theme: 200 pages and 300 images, 600
+ * before-and-after renders. Everything is held in memory until the download, so
+ * this is the test that shows where that ceiling starts to matter.
+ */
+test('a two-hundred-page site', async ({ page }) => {
+  test.setTimeout(600_000);
+  const png = readFileSync('tests/fixtures/flat.png').toString('base64');
+  await page.goto('/');
+  // React renders after the load event; the input may not exist the moment goto returns.
+  await page.locator('input[type=file]').waitFor({ state: 'attached' });
+
+  await page.evaluate((base64) => {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    const transfer = new DataTransfer();
+    const add = (path: string, body: BlobPart) => {
+      const file = new File([body], path.split('/').pop()!);
+      Object.defineProperty(file, 'webkitRelativePath', { value: path });
+      transfer.items.add(file);
+    };
+
+    add('css/site.css', 'body{margin:0;font:16px/1.5 sans-serif} .grid img{width:30%;margin:1%}');
+    for (let i = 0; i < 300; i++) add(`img/photo-${i}.png`, bytes);
+    for (let p = 0; p < 200; p++) {
+      const imgs = [0, 1, 2]
+        .map((k) => `<img src="../img/photo-${(p + k * 100) % 300}.png" alt="">`)
+        .join('');
+      add(
+        `pages/page-${p}.html`,
+        `<!doctype html><html><head><link rel="stylesheet" href="../css/site.css"></head>` +
+          `<body><h1>Page ${p}</h1><div class="grid">${imgs}</div><a href="page-${(p + 1) % 200}.html">next</a></body></html>`,
+      );
+    }
+    const input = document.querySelector('input[type=file]') as HTMLInputElement;
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }, png);
+
+  await expect(page.getByRole('radio', { name: /whole site \(200 pages\)/ })).toBeChecked();
+  const started = Date.now();
+  await page.getByRole('button', { name: /^Optimize the site$/ }).click();
+
+  const verification = page.getByRole('region', { name: 'Verification' });
+  await expect(verification).toBeVisible({ timeout: 540_000 });
+  console.log(`two hundred pages took ${Math.round((Date.now() - started) / 1000)}s`);
+
+  await expect(verification).toContainText('Checked. 200 pages');
+  await expect(page.getByRole('button', { name: 'Download site' })).toBeVisible();
+});

@@ -104,9 +104,9 @@ numbers.
 | 12 | Savings report, one self-contained HTML page | `share-report.ts` |
 | 13 | "Copy details for a bug report", with no file names or contents | `diagnostic.ts` |
 
-Still open: ten mixed files at once stall in WebKit under cross-origin isolation
-(found while testing item 7; the policy is not the cause), and translating
-per-file notes and the advanced settings.
+Still open: translating the advanced settings and whole-site mode. (The WebKit
+"stall" found while testing item 7 was the build machine, not Pare - see
+STATUS.md.)
 
 **Target size (1), task pages (2) and phone results (3)** together. They turn
 Pare from a developer tool into something anyone with a photo can use, and none

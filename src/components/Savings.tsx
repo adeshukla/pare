@@ -46,6 +46,9 @@ export function FilesSavings({ report, children }: { report: Report; children: R
         <SavingBars before={report.bytesBefore} after={report.bytesServed} />
 
         <p className="mt-4 max-w-prose text-sm text-muted">{t.savingsExplain(bytes(report.bytesEmitted))}</p>
+        {report.bytesCompressed < report.bytesServed && (
+          <p className="mt-2 max-w-prose text-sm text-muted">{t.compressedNote(bytes(report.bytesCompressed))}</p>
+        )}
       </div>
 
       {report.lines.length > 1 && (
