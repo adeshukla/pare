@@ -128,6 +128,13 @@ export default function App() {
       setNote(notes.join(' ') || t.nothingReadable);
       return;
     }
+    // A drop of only HEIC photos is a conversion job, not a responsive set:
+    // start from the HEIC-to-JPG page's settings (full size, JPEG) unless the
+    // visitor already chose something other than the default set.
+    const heic = TASKS.find((x) => x.slug === 'heic-to-jpg');
+    if (heic && !TASK && assets.every((a) => a.mime === 'image/heic')) {
+      setSettings((s) => (s.image.output === 'responsive' ? { ...s, image: { ...s.image, ...heic.image } } : s));
+    }
     setNote(notes.join(' '));
     setRan(false);
     setFolder(undefined);
@@ -149,7 +156,7 @@ export default function App() {
     // A drop containing pages is a site; that is what folder mode is for.
     // A WordPress theme has templates and no .html at all; it is still a site.
     setMode(assets.some((a) => a.kind === 'html' || a.kind === 'template') ? 'site' : 'files');
-  }, []);
+  }, [setSettings]);
 
   async function runFiles() {
     // Progress reaches here on a different channel from results, so a late

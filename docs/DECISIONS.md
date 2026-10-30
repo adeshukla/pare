@@ -1302,3 +1302,15 @@ and Chromium 6-8 s throughout. Tiles cost bytes for a gain inside the noise.
 throughput; Pare already spreads work over every core, starts loading codecs on
 drop, and picks the AVIF speed that is smallest per second (ADR-032). A Firefox
 visitor waits longer for the same bytes; the page does not say otherwise.
+
+## ADR-048 — A HEIC-only drop starts as a conversion, not a responsive set
+
+**Status:** accepted. Extends ADR-026.
+
+The libheif decoder was already its own lazy chunk, fetched only when a HEIC is
+dropped, and the HEIC-to-JPG page already existed. What was missing was the
+default: dropping only iPhone photos on the home page produced a responsive
+AVIF/WebP ladder. A drop made up entirely of HEIC now starts from that page's
+settings (one full-size JPEG each). A visitor who had already changed the
+output mode keeps their choice. Mixed drops are unchanged. Whole-site HEIC
+conversion stays off (ADR-026).
