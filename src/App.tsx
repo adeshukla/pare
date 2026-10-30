@@ -43,6 +43,9 @@ const TASK = TASKS.find((t) => t.slug === document.documentElement.dataset.task)
 /** The task's words in this page's language (ADR-041). */
 const COPY = TASK && taskCopy(TASK, lang);
 
+/** Firefox runs the WASM codecs several times slower than Chromium or WebKit (ADR-047). */
+const SLOW_ENGINE = /Firefox\//.test(navigator.userAgent);
+
 const INITIAL: Settings = {
   image: { ...DEFAULTS, ...TASK?.image },
   font: FONT_DEFAULTS,
@@ -363,6 +366,10 @@ export default function App() {
         <p role="status" aria-live="polite" className="mt-4 text-center text-sm text-muted empty:hidden">
           {verifying ? '' : note}
         </p>
+
+        {started && SLOW_ENGINE && rows.some((r) => r.asset.kind === 'image') && (
+          <p className="mt-2 text-center text-sm text-muted">{t.slowBrowser}</p>
+        )}
 
         {!started && (
           <>

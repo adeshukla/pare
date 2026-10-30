@@ -128,3 +128,12 @@ test('notes about a file read in the page language', async ({ page }) => {
   await expect(page.getByText('1200×800 तस्वीर के बीच से 200×230 काटा गया।')).toBeVisible();
   await expect(page.getByText(/^Cropped to/)).toHaveCount(0);
 });
+
+test('Firefox is told its image encoders are slower; other engines are not', async ({ page, browserName }) => {
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles('tests/fixtures/photo.jpg');
+  await expect(page.getByRole('button', { name: 'Optimize 1 file' })).toBeVisible();
+  const notice = page.getByText(/Firefox runs the image encoders/);
+  if (browserName === 'firefox') await expect(notice).toBeVisible();
+  else await expect(notice).toHaveCount(0);
+});

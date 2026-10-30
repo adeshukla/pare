@@ -143,6 +143,7 @@ const en = {
   exactSize: "Exact size, in pixels (optional)",
   width: "Width",
   height: "Height",
+  slowBrowser: "Firefox runs the image encoders several times slower than Chrome, Edge or Safari. It works and the files come out the same, but a large batch will take longer there.",
   exactSizeHint: "With both set, the middle of the picture is cropped to that shape. Pare then lowers only quality - the size stays exact - and says so if the limit cannot be met.",
   /** Worker notes in this language, by shape (src/lib/notes.ts). English needs none. */
   notes: {} as NoteTranslations,

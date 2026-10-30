@@ -129,6 +129,7 @@ const pt: Strings = {
   exactSize: "Tamanho exato, em pixels (opcional)",
   width: "Largura",
   height: "Altura",
+  slowBrowser: "O Firefox executa os codificadores de imagem várias vezes mais devagar que o Chrome, o Edge ou o Safari. Funciona e os arquivos saem iguais, mas um lote grande demora mais.",
   exactSizeHint: "Com os dois, o centro da imagem é cortado nesse formato. Depois o Pare só reduz a qualidade — o tamanho fica exato — e avisa se não couber no limite.",
   notes: {
     savedAsJpeg: () => 'Salva como JPEG: um PNG não troca qualidade por peso, e esta imagem não tem transparência, então nada visível se perde.',

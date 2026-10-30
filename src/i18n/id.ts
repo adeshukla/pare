@@ -123,6 +123,7 @@ const id: Strings = {
   exactSize: "Ukuran persis, dalam piksel (opsional)",
   width: "Lebar",
   height: "Tinggi",
+  slowBrowser: "Firefox menjalankan encoder gambar beberapa kali lebih lambat daripada Chrome, Edge, atau Safari. Tetap berfungsi dan hasilnya sama, tetapi kumpulan file besar akan lebih lama.",
   exactSizeHint: "Jika keduanya diisi, bagian tengah gambar dipotong ke bentuk itu. Lalu Pare hanya menurunkan kualitas — ukurannya tetap persis — dan memberi tahu bila batasnya tidak tercapai.",
   notes: {
     savedAsJpeg: () => 'Disimpan sebagai JPEG: PNG tidak bisa menukar kualitas dengan ukuran, dan gambar ini tidak transparan, jadi tidak ada yang terlihat hilang.',
