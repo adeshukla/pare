@@ -18,8 +18,17 @@ describe('loadOnce', () => {
     });
     const first = await load().catch((e: unknown) => e);
     expect(first).toBeInstanceOf(CodecUnavailable);
-    expect((first as Error).message).toBe('esbuild could not start: Out of memory');
+    expect((first as Error).message).toBe('esbuild could not start: RangeError Out of memory');
+    expect((first as CodecUnavailable).lowMemory).toBe(true);
     expect(await load()).toBe('ready');
     expect(calls).toBe(2);
+  });
+
+  it('keeps the real error of a failure that is not about memory', async () => {
+    const err = await loadOnce('x', async () => {
+      throw new TypeError('Failed to fetch');
+    })().catch((e: unknown) => e as CodecUnavailable);
+    expect(err.lowMemory).toBe(false);
+    expect((err.cause as Error).message).toBe('Failed to fetch');
   });
 });

@@ -127,7 +127,9 @@ test('a forty-page site', async ({ page }) => {
  * before-and-after renders. Everything is held in memory until the download, so
  * this is the test that shows where that ceiling starts to matter.
  */
-test('a two-hundred-page site', async ({ page }) => {
+test('a two-hundred-page site', async ({ page, browserName }) => {
+  // Firefox and WebKit run this several times slower (ADR-047); the 40-page test above covers them.
+  test.skip(browserName !== 'chromium', 'Chromium only: the other engines are too slow for CI at this size');
   test.setTimeout(600_000);
   const png = readFileSync('tests/fixtures/flat.png').toString('base64');
   await page.goto('/');

@@ -482,7 +482,7 @@ async function optimizeText(
     } catch (e) {
       // A minifier that could not start may start a moment later, once other
       // files have let go of their memory. One more try, then say so.
-      if (!(e instanceof CodecUnavailable)) throw e;
+      if (!(e instanceof CodecUnavailable) || !e.lowMemory) throw e;
       onProgress(0.2, 'Waiting for memory');
       await new Promise((r) => setTimeout(r, 2000));
       minified = await minifyByKind(source, kind, path, settings);
@@ -507,7 +507,9 @@ async function optimizeText(
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    skipped = e instanceof CodecUnavailable
+    skipped = e instanceof CodecUnavailable && !e.lowMemory
+      ? `The minifier for this kind of file could not start (${e.message}). The file is fine and was copied unchanged.`
+      : e instanceof CodecUnavailable
       ? 'The minifier for this kind of file could not start in this tab - usually a sign the device is short of memory. The file is fine and was copied unchanged; run it again with fewer files to minify it.'
       : /not supported yet|configured target environment/i.test(message)
       ? 'This file uses JavaScript newer than the browsers you chose can run, and it cannot be rewritten for them, so it was copied unchanged. Choose a newer browser range to minify it.'

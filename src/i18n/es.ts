@@ -129,6 +129,7 @@ const es: Strings = {
   exactSize: "Tamaño exacto, en píxeles (opcional)",
   width: "Ancho",
   height: "Alto",
+  heicNote: "Son fotos HEIC, así que cada una sale como un JPEG a tamaño completo. Cambia la salida abajo si quieres otra cosa.",
   slowBrowser: "Firefox ejecuta los codificadores de imagen varias veces más lento que Chrome, Edge o Safari. Funciona y los archivos salen iguales, pero un lote grande tardará más.",
   exactSizeHint: "Con ambos, se recorta el centro de la imagen a esa forma. Después Pare solo baja la calidad —el tamaño se mantiene exacto— y avisa si no llega al límite.",
   notes: {

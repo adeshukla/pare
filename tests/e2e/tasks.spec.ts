@@ -137,3 +137,12 @@ test('Firefox is told its image encoders are slower; other engines are not', asy
   if (browserName === 'firefox') await expect(notice).toBeVisible();
   else await expect(notice).toHaveCount(0);
 });
+
+test('a HEIC-only drop converts to JPEG without changing the saved settings', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles('tests/fixtures/photo.heic');
+  await expect(page.getByText(/These are HEIC photos/)).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'One size' })).toBeChecked();
+  const saved = await page.evaluate(() => localStorage.getItem('pare:settings'));
+  expect(saved === null || JSON.parse(saved).image.output === 'responsive').toBe(true);
+});

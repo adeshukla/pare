@@ -129,6 +129,7 @@ const pt: Strings = {
   exactSize: "Tamanho exato, em pixels (opcional)",
   width: "Largura",
   height: "Altura",
+  heicNote: "São fotos HEIC, então cada uma sai como um JPEG em tamanho original. Mude a saída abaixo se quiser outra coisa.",
   slowBrowser: "O Firefox executa os codificadores de imagem várias vezes mais devagar que o Chrome, o Edge ou o Safari. Funciona e os arquivos saem iguais, mas um lote grande demora mais.",
   exactSizeHint: "Com os dois, o centro da imagem é cortado nesse formato. Depois o Pare só reduz a qualidade — o tamanho fica exato — e avisa se não couber no limite.",
   notes: {

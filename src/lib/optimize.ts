@@ -81,6 +81,8 @@ export type KindLine = {
   served: number;
   /** Code only: what a server would send if it compressed the file. An estimate; the saved file is not this size. */
   compressed: number;
+  /** Some file of this kind reported a compressed size (code); other kinds count at `served`. */
+  compressedKnown: boolean;
   /** Every file emitted for this kind. */
   emitted: number;
   skipped: number;
@@ -128,8 +130,10 @@ export function measure(row: Row): { before: number; after?: number; detail: str
     // files, and a browser only receives them if the server is set up to send them.
     const encodings = text.siblings.map((s) => (s.encoding === 'gzip' ? 'gzip' : 'brotli'));
     const detail =
-      encodings.length > 0 && text.bytesTransport < text.bytesAfter
-        ? `${bytes(text.bytesTransport)} once a server compresses it (${encodings.join(' + ')} copies are in the zip)`
+      encodings.length > 0
+        ? text.bytesTransport < text.bytesAfter
+          ? `${bytes(text.bytesTransport)} once a server compresses it (${encodings.join(' + ')} copies are in the zip)`
+          : `minified; ${encodings.join(' + ')} copies are in the zip but are no smaller`
         : text.skipped
           ? ''
           : 'minified';
@@ -153,7 +157,7 @@ export function locationRemoved(row: Row): boolean {
 }
 
 function blank(kind: ReportKind): KindLine {
-  return { kind, count: 0, before: 0, served: 0, compressed: 0, emitted: 0, skipped: 0 };
+  return { kind, count: 0, before: 0, served: 0, compressed: 0, compressedKnown: false, emitted: 0, skipped: 0 };
 }
 
 export function summarise(rows: Row[]): Report {
@@ -216,6 +220,7 @@ export function summarise(rows: Row[]): Report {
       // The saved file is what a visitor gets unless a server compresses it.
       l.served += text.bytesAfter;
       l.compressed += text.bytesTransport;
+      l.compressedKnown = true;
       l.emitted +=
         text.bytesAfter +
         text.siblings.reduce((n, s) => n + s.bytes.byteLength, 0) +
@@ -231,7 +236,7 @@ export function summarise(rows: Row[]): Report {
     lines: out,
     bytesBefore: out.reduce((n, l) => n + l.before, 0),
     bytesServed: out.reduce((n, l) => n + l.served, 0),
-    bytesCompressed: out.reduce((n, l) => n + (l.compressed || l.served), 0),
+    bytesCompressed: out.reduce((n, l) => n + (l.compressedKnown ? l.compressed : l.served), 0),
     bytesEmitted: out.reduce((n, l) => n + l.emitted, 0),
     skipped: out.reduce((n, l) => n + l.skipped, 0),
     warnings,

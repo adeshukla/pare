@@ -65,6 +65,15 @@ export default function App() {
     'pare:site-settings',
     FOLDER_DEFAULTS,
   );
+  const [heicDrop, setHeicDrop] = useState(false);
+  // What actually runs: a HEIC-only drop starts from the HEIC-to-JPG settings
+  // unless the visitor has already moved off the default responsive set.
+  const effective = useMemo<Settings>(() => {
+    const heic = TASKS.find((x) => x.slug === 'heic-to-jpg');
+    return heicDrop && heic && settings.image.output === 'responsive'
+      ? { ...settings, image: { ...settings.image, ...heic.image } }
+      : settings;
+  }, [heicDrop, settings]);
   const [offline, setOffline] = useState(false);
   const [mode, setMode] = useState<Mode>('files');
   const [running, setRunning] = useState(false);
@@ -126,18 +135,18 @@ export default function App() {
       .map(([n, kind]) => t.kindCount(n, kind));
   }, [rows]);
 
-  const accept = useCallback((assets: Asset[], notes: string[] = [], start = false) => {
+  const accept = useCallback((assets: Asset[], notesIn: string[] = [], start = false) => {
+    let notes = notesIn;
     if (assets.length === 0) {
       setNote(notes.join(' ') || t.nothingReadable);
       return;
     }
-    // A drop of only HEIC photos is a conversion job, not a responsive set:
-    // start from the HEIC-to-JPG page's settings (full size, JPEG) unless the
-    // visitor already chose something other than the default set.
-    const heic = TASKS.find((x) => x.slug === 'heic-to-jpg');
-    if (heic && !TASK && assets.every((a) => a.mime === 'image/heic')) {
-      setSettings((s) => (s.image.output === 'responsive' ? { ...s, image: { ...s.image, ...heic.image } } : s));
-    }
+    // A drop of only HEIC photos is a conversion job, not a responsive set. It
+    // runs as the HEIC-to-JPG page does, for this drop only: the visitor's saved
+    // settings are not touched (see `effective`).
+    const heicDrop = !TASK && assets.every((x) => x.mime === 'image/heic');
+    setHeicDrop(heicDrop);
+    if (heicDrop) notes = [...notes, t.heicNote];
     setNote(notes.join(' '));
     setRan(false);
     setFolder(undefined);
@@ -159,7 +168,7 @@ export default function App() {
     // A drop containing pages is a site; that is what folder mode is for.
     // A WordPress theme has templates and no .html at all; it is still a site.
     setMode(assets.some((a) => a.kind === 'html' || a.kind === 'template') ? 'site' : 'files');
-  }, [setSettings]);
+  }, []);
 
   async function runFiles() {
     // Progress reaches here on a different channel from results, so a late
@@ -173,7 +182,7 @@ export default function App() {
       );
     const done = await optimizeAssets(
       rows.map((r) => r.asset),
-      settings,
+      effective,
       update,
     );
     setRows(done);
@@ -239,7 +248,7 @@ export default function App() {
   }, [autostart, rows]);
 
   async function copyDiagnostic() {
-    const text = diagnostic({ rows, settings, folderSettings, mode, folder, verification });
+    const text = diagnostic({ rows, settings: effective, folderSettings, mode, folder, verification });
     try {
       await navigator.clipboard.writeText(text);
       say('Copied. Paste it into your report - it holds no file names or contents.');
@@ -430,8 +439,11 @@ export default function App() {
                   />
                 ) : (
                   <Controls
-                    settings={settings}
-                    onChange={setSettings}
+                    settings={effective}
+                    onChange={(next) => {
+                      setHeicDrop(false);
+                      setSettings(next);
+                    }}
                     disabled={running}
                     present={present}
                   />

@@ -123,6 +123,7 @@ const id: Strings = {
   exactSize: "Ukuran persis, dalam piksel (opsional)",
   width: "Lebar",
   height: "Tinggi",
+  heicNote: "Ini foto HEIC, jadi masing-masing menjadi satu JPEG ukuran penuh. Ubah keluaran di bawah jika ingin yang lain.",
   slowBrowser: "Firefox menjalankan encoder gambar beberapa kali lebih lambat daripada Chrome, Edge, atau Safari. Tetap berfungsi dan hasilnya sama, tetapi kumpulan file besar akan lebih lama.",
   exactSizeHint: "Jika keduanya diisi, bagian tengah gambar dipotong ke bentuk itu. Lalu Pare hanya menurunkan kualitas — ukurannya tetap persis — dan memberi tahu bila batasnya tidak tercapai.",
   notes: {

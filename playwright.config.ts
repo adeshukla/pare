@@ -14,6 +14,14 @@ import { defineConfig, devices } from '@playwright/test';
 const PREVIEW_PORT = process.env.PARE_PREVIEW_PORT ?? '4173';
 const PREVIEW_URL = `http://localhost:${PREVIEW_PORT}`;
 
+// Start only the servers the selected projects need: the dev server for the
+// three engines, the build-and-preview for offline and production. With no
+// --project flag, both.
+const picked = [...process.argv.join(' ').matchAll(/--project[= ]([w-]+)/g)].map((m) => m[1] ?? '');
+const isPreview = (name: string) => /^(offline|production)/.test(name);
+const wantDev = picked.length === 0 || picked.some((n) => !isPreview(n));
+const wantPreview = picked.length === 0 || picked.some(isPreview);
+
 export default defineConfig({
   testDir: 'tests/e2e',
   fullyParallel: true,
@@ -70,13 +78,13 @@ export default defineConfig({
   ],
 
   webServer: [
-    {
+    wantDev && {
       command: 'npm run dev -- --port 5173 --strictPort',
       url: 'http://localhost:5173',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
-    {
+    wantPreview && {
       command: `npx vite build && npx vite preview --port ${PREVIEW_PORT} --strictPort`,
       url: PREVIEW_URL,
       // Never reuse: a server already there is another project's, or a
@@ -85,5 +93,5 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 180_000,
     },
-  ],
+  ].filter((s) => s !== false),
 });
