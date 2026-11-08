@@ -153,3 +153,11 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=pare --branch=${{ github.ref_name }}
+
+      # Tell Bing (IndexNow) and, when the secrets exist, Google Search Console
+      # about the new sitemap. Never fails the deploy. See scripts/submit-sitemap.mjs.
+      - name: Submit sitemap
+        run: node scripts/submit-sitemap.mjs
+        env:
+          GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+          GSC_SITE: ${{ vars.GSC_SITE }}
