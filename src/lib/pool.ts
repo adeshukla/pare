@@ -16,7 +16,10 @@ import type { PipelineApi } from '../workers/pipeline.worker';
 
 type Task<T> = (api: Remote<PipelineApi>) => Promise<T>;
 
-const SIZE = Math.max(1, (navigator.hardwareConcurrency || 4) - 1);
+// Capped: every worker holds its own copy of each codec, and past about eight the
+// browser starts refusing new WASM memory (measured: 24 cores, 18 files, resize
+// failed "Out of memory" in 9 of 21 runs).
+const SIZE = Math.min(8, Math.max(1, (navigator.hardwareConcurrency || 4) - 1));
 
 type Slot = { api: Remote<PipelineApi>; worker: Worker; busy: boolean };
 

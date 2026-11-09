@@ -86,9 +86,9 @@ async function main() {
 
   let browser;
   try {
-    browser = await chromium.launch();
+    browser = await chromium.launch({ channel: process.env.PARE_BROWSER_CHANNEL || undefined });
   } catch {
-    console.error('No Chromium found. Run once: npx playwright install chromium');
+    console.error('No Chromium found. Run once: npx playwright install chromium (or use an installed Chrome: PARE_BROWSER_CHANNEL=chrome)');
     return 2;
   }
   try {
@@ -202,6 +202,15 @@ async function main() {
     const sizes = summary.match(/[\d.]+ (?:B|KB|MB)\b/g) ?? [];
     const saving = /\d+% smaller/.exec(summary)?.[0];
     if (sizes.length >= 2) console.log(`\n\n${sizes[0]} → ${sizes[1]}${saving ? `, ${saving}` : ''}`);
+    // What Pare chose not to touch, and why (Law 5): the same list the page shows.
+    const left = page.locator('details', { has: page.locator('summary', { hasText: /^\s*\d*\s*Left alone/ }) }).first();
+    if ((await left.count()) > 0) {
+      const items = await left
+        .locator('li')
+        .evaluateAll((lis) => lis.map((li) => [...li.querySelectorAll('span')].map((s) => s.textContent.trim()).join(' - ')))
+        .catch(() => []);
+      if (items.length) console.log(`\nLeft alone (${items.length}):\n` + items.map((t) => '  - ' + t).join('\n'));
+    }
     console.log(`Wrote ${written} files to ${outDir}`);
     return 0;
   } finally {

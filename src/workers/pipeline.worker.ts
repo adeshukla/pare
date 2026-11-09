@@ -635,8 +635,8 @@ async function reencodeInPlace(
       const from = source.width;
       source = await resize(source, maxWidth, scaledHeight(source.width, source.height, maxWidth));
       resized = { from, to: maxWidth };
-    } catch {
-      warnings.push('Could not resize this image, so it was re-encoded at its full size.');
+    } catch (e) {
+      warnings.push('Could not resize this image (' + (e instanceof Error ? e.message : String(e)) + '), so it was re-encoded at its full size.');
     }
   }
 
