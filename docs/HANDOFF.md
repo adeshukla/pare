@@ -2,19 +2,38 @@
 
 Written at the end of a working session so a new session (or another PC) can
 pick up without the chat history. Read AGENTS.md first, then docs/STATUS.md,
-then this. Last updated 2026-11-08, at commit `aaae8fc` on `master`.
+then this. Last updated 2026-11-09, at commit `759b2d5` on `master`.
 
 ## State
 
-- `master` and `features/overnight` are the same commit and both pushed.
-  Production (https://pare.devstash.me) was deployed by hand with
-  `npx wrangler pages deploy dist --project-name=pare --branch=master` from that
-  commit. Nothing is uncommitted.
-- Checks passing at that point: lint, typecheck, 273 unit tests, build, size
-  budget (118.6 KB of 150 KB). Chromium and Firefox e2e for tasks.spec.ts and
-  formats.spec.ts passed. WebKit and the full suite were not rerun by hand.
+- `master` is at `759b2d5`: **committed locally, not pushed, not deployed.**
+  `origin/master` and production (https://pare.devstash.me, deployed by hand with
+  `npx wrangler pages deploy dist --project-name=pare --branch=master`) are at
+  `397b691`, so production does not have the pool fix below yet.
+- Passing on `759b2d5`: lint, typecheck, 273 unit tests, size budget (118.8 KB of
+  150 KB). Browser e2e was **not** run for this commit (no Playwright browsers on
+  this PC; installed Chrome is used for the CLI instead). WebKit and the full suite
+  have not been rerun by hand.
 
-## What this stretch of work did
+## Latest session (2026-11-09): dummy-site test and the resize fix
+
+Full write-up: docs/DUMMY-RUN-2026-11-09.md.
+
+- Ran an 18-file generated site (6 grainy 2400 px photos, screenshots, logo, bloated
+  CSS/JS/SVG, font, two pages, traps for Law 3) through the CLI: 7.54 MB to 1.69 MB
+  (77%), 6 s, verification clean, untraceable files kept their names.
+- **Bug found and fixed:** the pool made cores-1 workers (23 on a 24-core PC), the
+  browser ran out of WASM memory, and one photo skipped its resize in 9 of 21 runs.
+  `src/lib/pool.ts` now caps the pool at 8: 0 failures in 10 runs, identical output,
+  6 s instead of 10 s. Untested: very large sites with the smaller pool.
+- The resize failure note now carries the real error (`pipeline.worker.ts`).
+- The CLI prints the "Left alone" list; `PARE_BROWSER_CHANNEL=chrome` runs it with
+  installed Chrome instead of the Playwright download.
+- Open from that run: check the page says screenshots become 256-colour PNGs (lossy)
+  and decide whether a lossless switch is wanted; the CLI's "after" headline varied
+  by ~0.05 MB between runs while the written files were identical.
+
+## Earlier work (2026-11-08)
 
 1. **Code "after" size is the saved file** (ADR-045). Minified CSS/JS used to
    show the gzip/brotli size as "after" while Save gave the full minified file.
@@ -43,6 +62,8 @@ then this. Last updated 2026-11-08, at commit `aaae8fc` on `master`.
 
 ## Still open
 
+- **Push and deploy `759b2d5`** (needs the owner's go-ahead), then run the browser
+  e2e on a PC that has the Playwright browsers.
 - **Google sitemap submit is not enabled.** Needs a Google Cloud service
   account added as an owner in Search Console, then repo secret
   `GSC_SERVICE_ACCOUNT_JSON` and repo variable `GSC_SITE`
