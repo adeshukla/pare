@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { t } from '../i18n';
+import { lang, t } from '../i18n';
+import { FAQ } from '../tasks';
 import { Icon, type IconName } from './Visuals';
 
 /**
@@ -163,5 +164,25 @@ export function Steps() {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Plain questions and answers, no widgets: readable by people and by crawlers. */
+export function Faq() {
+  const { heading, items } = FAQ[lang];
+  return (
+    <section aria-labelledby="faq" className="mt-16 grid gap-6 border-t border-rule pt-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
+      <h2 id="faq" className="text-xl font-semibold">
+        {heading}
+      </h2>
+      <dl className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+        {items.map(([q, a]) => (
+          <div key={q}>
+            <dt className="font-semibold">{q}</dt>
+            <dd className="mt-1 text-sm text-muted">{a}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }

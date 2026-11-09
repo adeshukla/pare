@@ -6,6 +6,7 @@
     <title>Pare — optimize your assets in the browser</title>
     <meta name="description" content="Compress and convert images, fonts and code without installing anything. Your files never leave your browser." />
     <meta name="color-scheme" content="light dark" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
     <link rel="canonical" href="https://pare.devstash.me/" />
     <!-- alternates -->
     <link rel="alternate" hreflang="en" href="https://pare.devstash.me/" />
@@ -16,7 +17,7 @@
     <link rel="alternate" hreflang="x-default" href="https://pare.devstash.me/" />
     <!-- /alternates -->
     <!-- ld -->
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Pare","headline":"Pare — optimize your assets in the browser","description":"Compress and convert images, fonts and code without installing anything. Your files never leave your browser.","url":"https://pare.devstash.me/","inLanguage":"en","applicationCategory":"MultimediaApplication","operatingSystem":"Any (runs in a web browser)","isAccessibleForFree":true,"offers":{"@type":"Offer","price":0,"priceCurrency":"USD"},"author":{"@type":"Person","@id":"https://devstash.me/#person","name":"Adesh Shukla","url":"https://devstash.me"}}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebApplication","name":"Pare","headline":"Pare — optimize your assets in the browser","description":"Compress and convert images, fonts and code without installing anything. Your files never leave your browser.","url":"https://pare.devstash.me/","inLanguage":"en","applicationCategory":"MultimediaApplication","operatingSystem":"Any (runs in a web browser)","isAccessibleForFree":true,"offers":{"@type":"Offer","price":0,"priceCurrency":"USD"},"author":{"@type":"Person","@id":"https://devstash.me/#person","name":"Adesh Shukla","url":"https://devstash.me"}}]}</script>
     <!-- /ld -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -30,6 +31,16 @@
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Pare it down. Shrink images, fonts and code in your browser." />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- social -->
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="hi_IN" />
+    <meta property="og:locale:alternate" content="es_ES" />
+    <meta property="og:locale:alternate" content="pt_BR" />
+    <meta property="og:locale:alternate" content="id_ID" />
+    <meta name="twitter:title" content="Pare — optimize your assets in the browser" />
+    <meta name="twitter:description" content="Compress and convert images, fonts and code without installing anything. Your files never leave your browser." />
+    <meta name="twitter:image" content="https://pare.devstash.me/og.jpg" />
+    <!-- /social -->
     <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%239333ea'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Cpath d='M9 23V9h7a5 5 0 0 1 0 10h-4' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
@@ -57,6 +68,17 @@
           <li><a href="/tools/convert-to-avif/">Convert to AVIF</a></li>
           <li><a href="/tools/make-favicon/">Make a favicon</a></li>
         </ul>
+        <h2>Questions</h2>
+        <dl>
+          <dt>Are my files uploaded anywhere?</dt>
+          <dd>No. Files are read in this browser tab and never sent anywhere — Pare has no server to send them to. After one visit, the tools you have used once also work offline.</dd>
+          <dt>Is Pare free?</dt>
+          <dd>Yes. There is no account and nothing to install, and it is free to use for commercial work too.</dd>
+          <dt>Which files can I drop in?</dt>
+          <dd>Images (JPEG, PNG, WebP, AVIF, GIF, HEIC from iPhones, and BMP), fonts, CSS, JavaScript, HTML and SVG, or a whole site folder.</dd>
+          <dt>How is this different from online image compressors?</dt>
+          <dd>Most upload your files to a server. Pare runs its encoders (compiled to WebAssembly) inside your browser, so nothing leaves your device, and it also gives you the HTML to use the result.</dd>
+        </dl>
         <p>Pare is made by Adesh Shukla: <a href="https://devstash.me/projects/pare">devstash.me</a>.</p>
       </main>
     </noscript>

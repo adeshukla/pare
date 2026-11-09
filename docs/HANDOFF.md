@@ -2,7 +2,7 @@
 
 Written at the end of a working session so a new session (or another PC) can
 pick up without the chat history. Read AGENTS.md first, then docs/STATUS.md,
-then this. Last updated 2026-11-09, at commit `759b2d5` on `master`.
+then this. Last updated 2026-11-10 on `master`.
 
 ## State
 
@@ -15,7 +15,23 @@ then this. Last updated 2026-11-09, at commit `759b2d5` on `master`.
   this PC; installed Chrome is used for the CLI instead). WebKit and the full suite
   have not been rerun by hand.
 
-## Latest session (2026-11-09): dummy-site test and the resize fix
+## SEO pass (2026-11-10)
+
+The pool fix (`759b2d5`) and handoff (`cc33bf5`) were deployed by hand on 2026-11-09
+(live bundle `main-DQIkBV8s.js`). Then, one SEO commit, also pushed and deployed:
+
+- Every page (35, all five languages) gains `og:locale` plus alternates, `twitter:title`,
+  `twitter:description`, `twitter:image`, and a robots tag allowing large previews.
+- JSON-LD is now a `@graph`; task pages add a `BreadcrumbList` (Pare, then the task).
+- A visible four-question FAQ (private? free? which files? how it differs) in all five
+  languages, from one source (`FAQ` in `src/tasks.ts`), also written into each page's
+  no-script copy. Every answer is a fact the README and llms.txt already state.
+- Initial JS 118.8 to 120.8 KB gz of 150 (the FAQ text for all languages ships in the bundle).
+- Not done, on purpose: `lastmod` in the sitemap (a build date would be wrong), FAQ rich-result
+  markup (Google limits it to a few site types), new keyword pages (each needs five translations).
+- Still to do by hand: Search Console and Bing Webmaster setup (see Still open).
+
+## Earlier (2026-11-09): dummy-site test and the resize fix
 
 Full write-up: docs/DUMMY-RUN-2026-11-09.md.
 

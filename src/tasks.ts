@@ -359,3 +359,58 @@ const TRANSLATED: Record<Exclude<Lang, 'en'>, Record<string, Copy>> = {
 export function taskCopy(task: Task, lang: Lang): Copy {
   return (lang === 'en' ? undefined : TRANSLATED[lang][task.slug]) ?? task;
 }
+
+/**
+ * Questions people ask before they drop a file in, answered once per language.
+ * Shown on every page (src/components/Hero.tsx) and repeated as plain HTML for
+ * readers that run no scripts (scripts/make-task-pages.mjs), so the page and
+ * its crawl copy cannot drift apart. Every line is a fact the product already
+ * states elsewhere (README, llms.txt); no claim about speed or ranking.
+ */
+export const FAQ: Record<Lang, { heading: string; items: Array<[string, string]> }> = {
+  en: {
+    heading: 'Questions',
+    items: [
+      ['Are my files uploaded anywhere?', 'No. Files are read in this browser tab and never sent anywhere — Pare has no server to send them to. After one visit, the tools you have used once also work offline.'],
+      ['Is Pare free?', 'Yes. There is no account and nothing to install, and it is free to use for commercial work too.'],
+      ['Which files can I drop in?', 'Images (JPEG, PNG, WebP, AVIF, GIF, HEIC from iPhones, and BMP), fonts, CSS, JavaScript, HTML and SVG, or a whole site folder.'],
+      ['How is this different from online image compressors?', 'Most upload your files to a server. Pare runs its encoders (compiled to WebAssembly) inside your browser, so nothing leaves your device, and it also gives you the HTML to use the result.'],
+    ],
+  },
+  hi: {
+    heading: 'सवाल',
+    items: [
+      ['क्या मेरी फ़ाइलें कहीं अपलोड होती हैं?', 'नहीं। फ़ाइलें इसी ब्राउज़र टैब में पढ़ी जाती हैं और कहीं नहीं भेजी जातीं — Pare का कोई सर्वर है ही नहीं। एक बार खोलने के बाद, जिन टूल्स का आपने एक बार इस्तेमाल किया है वे ऑफ़लाइन भी चलते हैं।'],
+      ['क्या Pare मुफ़्त है?', 'हाँ। न अकाउंट चाहिए, न कुछ इंस्टॉल करना है, और व्यावसायिक काम के लिए भी इसे मुफ़्त में इस्तेमाल किया जा सकता है।'],
+      ['कौन-सी फ़ाइलें डाल सकता हूँ?', 'इमेज (JPEG, PNG, WebP, AVIF, GIF, iPhone की HEIC और BMP), फ़ॉन्ट, CSS, JavaScript, HTML और SVG, या पूरी साइट का फ़ोल्डर।'],
+      ['ऑनलाइन इमेज कंप्रेसर से यह कैसे अलग है?', 'ज़्यादातर आपकी फ़ाइलें किसी सर्वर पर अपलोड करते हैं। Pare अपने एन्कोडर (WebAssembly में बने) आपके ब्राउज़र के अंदर चलाता है, इसलिए कुछ भी आपके डिवाइस से बाहर नहीं जाता, और नतीजे को इस्तेमाल करने के लिए ज़रूरी HTML भी मिलता है।'],
+    ],
+  },
+  es: {
+    heading: 'Preguntas frecuentes',
+    items: [
+      ['¿Se suben mis archivos a algún sitio?', 'No. Los archivos se leen en esta pestaña del navegador y no se envían a ninguna parte: Pare no tiene servidor al que enviarlos. Tras una visita, las herramientas que ya usaste una vez también funcionan sin conexión.'],
+      ['¿Pare es gratis?', 'Sí. No hay cuenta ni nada que instalar, y se puede usar gratis también en trabajo comercial.'],
+      ['¿Qué archivos puedo soltar?', 'Imágenes (JPEG, PNG, WebP, AVIF, GIF, HEIC del iPhone y BMP), fuentes, CSS, JavaScript, HTML y SVG, o la carpeta de un sitio entero.'],
+      ['¿En qué se diferencia de los compresores de imágenes en línea?', 'La mayoría sube tus archivos a un servidor. Pare ejecuta sus codificadores (compilados a WebAssembly) dentro de tu navegador, así que nada sale de tu dispositivo, y además te da el HTML para usar el resultado.'],
+    ],
+  },
+  pt: {
+    heading: 'Perguntas frequentes',
+    items: [
+      ['Meus arquivos são enviados para algum lugar?', 'Não. Os arquivos são lidos nesta aba do navegador e não são enviados a lugar nenhum — o Pare não tem servidor para onde enviá-los. Depois de uma visita, as ferramentas que você já usou uma vez também funcionam offline.'],
+      ['O Pare é gratuito?', 'Sim. Não há conta nem nada para instalar, e ele pode ser usado de graça também em trabalho comercial.'],
+      ['Que arquivos posso soltar?', 'Imagens (JPEG, PNG, WebP, AVIF, GIF, HEIC do iPhone e BMP), fontes, CSS, JavaScript, HTML e SVG, ou a pasta de um site inteiro.'],
+      ['Qual a diferença para os compressores de imagem online?', 'A maioria envia seus arquivos para um servidor. O Pare executa seus codificadores (compilados para WebAssembly) dentro do navegador, então nada sai do seu dispositivo, e ainda entrega o HTML para usar o resultado.'],
+    ],
+  },
+  id: {
+    heading: 'Pertanyaan umum',
+    items: [
+      ['Apakah file saya diunggah ke suatu tempat?', 'Tidak. File dibaca di tab browser ini dan tidak dikirim ke mana pun — Pare tidak punya server untuk menerimanya. Setelah satu kali kunjungan, alat yang sudah Anda pakai sekali juga bisa berjalan offline.'],
+      ['Apakah Pare gratis?', 'Ya. Tidak perlu akun dan tidak ada yang harus dipasang, dan boleh dipakai gratis untuk pekerjaan komersial juga.'],
+      ['File apa yang bisa saya taruh?', 'Gambar (JPEG, PNG, WebP, AVIF, GIF, HEIC dari iPhone, dan BMP), font, CSS, JavaScript, HTML, dan SVG, atau seluruh folder situs.'],
+      ['Apa bedanya dengan kompresor gambar online?', 'Kebanyakan mengunggah file Anda ke server. Pare menjalankan encoder-nya (dikompilasi ke WebAssembly) di dalam browser Anda, jadi tidak ada yang keluar dari perangkat Anda, dan Pare juga memberi HTML untuk memakai hasilnya.'],
+    ],
+  },
+};

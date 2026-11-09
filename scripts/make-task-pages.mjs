@@ -10,7 +10,7 @@
 // Run by `npm run dev` and `npm run build`; by hand after editing either file:
 //   node scripts/make-task-pages.mjs        (Node strips the TypeScript types.)
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { HOME, LANGS, SITE, TASKS, homePath, taskCopy, taskPath } from '../src/tasks.ts';
+import { FAQ, HOME, LANGS, SITE, TASKS, homePath, taskCopy, taskPath } from '../src/tasks.ts';
 
 const attr = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const BLOCK = /<!-- alternates -->[\s\S]*?<!-- \/alternates -->/;
@@ -23,9 +23,8 @@ const text = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g,
 
 /** JSON-LD for one page. The author @id is the Person node devstash.me
  * declares, so both sites describe the same person. */
-const ld = ({ lang, url, title, description }) => {
-  const data = {
-    '@context': 'https://schema.org',
+const ld = ({ lang, url, title, description, crumb }) => {
+  const app = {
     '@type': 'WebApplication',
     name: 'Pare',
     headline: title,
@@ -43,20 +42,44 @@ const ld = ({ lang, url, title, description }) => {
       url: 'https://devstash.me',
     },
   };
+  // Where a task page sits: Pare, then the task. Home pages have no trail.
+  const trail = crumb && {
+    '@type': 'BreadcrumbList',
+    itemListElement: crumb.map(([name, item], i) => ({ '@type': 'ListItem', position: i + 1, name, item })),
+  };
+  const data = { '@context': 'https://schema.org', '@graph': trail ? [app, trail] : [app] };
   // A "<" escaped, so no string in the data can close the script tag.
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
   return `<!-- ld -->\n    <script type="application/ld+json">${json}</script>\n    <!-- /ld -->`;
 };
 
+const LOCALE = { en: 'en_US', hi: 'hi_IN', es: 'es_ES', pt: 'pt_BR', id: 'id_ID' };
+const SOCIAL = /<!-- social -->[\s\S]*?<!-- \/social -->/;
+
+/** The page's language for the share card, and the card's own title and text. */
+const social = ({ lang, title, description }) =>
+  '<!-- social -->\n' +
+  `    <meta property="og:locale" content="${LOCALE[lang]}" />\n` +
+  LANGS.filter((l) => l !== lang)
+    .map((l) => `    <meta property="og:locale:alternate" content="${LOCALE[l]}" />\n`)
+    .join('') +
+  `    <meta name="twitter:title" content="${attr(title)}" />\n` +
+  `    <meta name="twitter:description" content="${attr(description)}" />\n` +
+  `    <meta name="twitter:image" content="${SITE}/og.jpg" />\n` +
+  '    <!-- /social -->';
+
 /** The page's words for a reader that runs no scripts. Inside <noscript>,
  * so everyone else never sees them: no flash, no layout shift. */
-const crawl = ({ heading, paragraphs, links }) =>
+const crawl = ({ lang, heading, paragraphs, links }) =>
   '<!-- crawl -->\n    <noscript>\n      <main>\n' +
   `        <h1>${text(heading)}</h1>\n` +
   paragraphs.map((p) => `        <p>${text(p)}</p>\n`).join('') +
   '        <ul>\n' +
   links.map(([href, label]) => `          <li><a href="${href}">${text(label)}</a></li>\n`).join('') +
   '        </ul>\n' +
+  `        <h2>${text(FAQ[lang].heading)}</h2>\n        <dl>\n` +
+  FAQ[lang].items.map(([q, a]) => `          <dt>${text(q)}</dt>\n          <dd>${text(a)}</dd>\n`).join('') +
+  '        </dl>\n' +
   '        <p>Pare is made by Adesh Shukla: <a href="https://devstash.me/projects/pare">devstash.me</a>.</p>\n' +
   '      </main>\n    </noscript>\n    <!-- /crawl -->';
 
@@ -64,6 +87,7 @@ const crawl = ({ heading, paragraphs, links }) =>
 const taskLinks = (lang) => TASKS.map((t) => [taskPath(t, lang), taskCopy(t, lang).name]);
 
 const homeBody = (lang) => ({
+  lang,
   heading: HOME[lang].title,
   paragraphs: [HOME[lang].description],
   links: taskLinks(lang),
@@ -86,10 +110,11 @@ const alternates = (pathFor) =>
 const source = readFileSync('index.html', 'utf8');
 let template = swap(source, BLOCK, alternates(homePath));
 template = swap(template, LD, ld({ lang: 'en', url: SITE + homePath('en'), ...HOME.en }));
+template = swap(template, SOCIAL, social({ lang: 'en', ...HOME.en }));
 template = swap(template, CRAWL, crawl(homeBody('en')));
 if (template !== source) writeFileSync('index.html', template);
 
-function page({ lang, path, title, description, task, pathFor, body }) {
+function page({ lang, path, title, description, task, pathFor, body, crumb }) {
   const url = SITE + path;
   let html = template;
   html = swap(html, /<html lang="en">/, `<html lang="${lang}"${task ? ` data-task="${task}"` : ''}>`);
@@ -100,7 +125,8 @@ function page({ lang, path, title, description, task, pathFor, body }) {
   html = swap(html, /(<meta property="og:title" content=")[^"]*(")/, `$1${attr(title)}$2`);
   html = swap(html, /(<meta property="og:description" content=")[^"]*(")/, `$1${attr(description)}$2`);
   html = swap(html, BLOCK, alternates(pathFor));
-  html = swap(html, LD, ld({ lang, url, title, description }));
+  html = swap(html, LD, ld({ lang, url, title, description, crumb }));
+  html = swap(html, SOCIAL, social({ lang, title, description }));
   html = swap(html, CRAWL, crawl(body));
   const dir = path.replace(/^\/|\/$/g, '');
   mkdirSync(dir, { recursive: true });
@@ -125,7 +151,12 @@ for (const lang of LANGS) {
       description: copy.description,
       task: task.slug,
       pathFor: (l) => taskPath(task, l),
+      crumb: [
+        ['Pare', SITE + homePath(lang)],
+        [copy.name, SITE + taskPath(task, lang)],
+      ],
       body: {
+        lang,
         heading: copy.heading.join(' '),
         paragraphs: [copy.lede],
         links: [

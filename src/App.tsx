@@ -9,7 +9,7 @@ import {
   VerificationReport,
   Verifying,
 } from './components/FolderPanel';
-import { Features, Steps } from './components/Hero';
+import { Faq, Features, Steps } from './components/Hero';
 import { Results } from './components/Results';
 import { FilesSavings } from './components/Savings';
 import { UnusedCss } from './components/UnusedCss';
@@ -384,6 +384,7 @@ export default function App() {
           <>
             <Features />
             <Steps />
+            <Faq />
           </>
         )}
 
