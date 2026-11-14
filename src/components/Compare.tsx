@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { bytes } from '../lib/format';
 import { FORMAT_LABEL } from '../lib/settings';
+import { formatSsim } from '../lib/ssim';
 import { Segmented } from './Visuals';
 import type { ImageOutcome } from '../lib/types';
 
@@ -139,6 +140,7 @@ export function Compare({
           <span className="absolute top-3 right-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
             {variant.format === 'fallback' ? 'Re-encoded' : FORMAT_LABEL[variant.format]} ·{' '}
             {bytes(variant.bytes.byteLength)}
+            {variant.ssim !== undefined && <> · similarity {formatSsim(variant.ssim)}</>}
           </span>
         </div>
       </div>

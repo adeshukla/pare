@@ -111,6 +111,13 @@ export type Variant = {
   height: number;
   path: string;
   bytes: Uint8Array;
+  /**
+   * SSIM of this file against the source at the same size (ADR-049), measured
+   * by decoding the file itself. Absent when it could not be measured.
+   */
+  ssim?: number;
+  /** The quality this file was encoded at, when Pare chose it to meet a score. */
+  quality?: number;
 };
 
 /**

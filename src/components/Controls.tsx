@@ -42,8 +42,8 @@ const FORMAT_HINT: Record<OutputFormat, string> = {
  * three together. "Balanced" is the default, and close to what the encoders'
  * own authors recommend for photographs.
  */
-type QualityPreset = 'small' | 'balanced' | 'crisp' | 'custom';
-const QUALITY_PRESETS: Record<Exclude<QualityPreset, 'custom'>, Record<OutputFormat, number>> = {
+type QualityPreset = 'small' | 'balanced' | 'crisp' | 'custom' | 'match';
+const QUALITY_PRESETS: Record<Exclude<QualityPreset, 'custom' | 'match'>, Record<OutputFormat, number>> = {
   small: { avif: 38, webp: 62, fallback: 62 },
   balanced: { avif: 50, webp: 75, fallback: 75 },
   crisp: { avif: 64, webp: 86, fallback: 86 },
@@ -53,7 +53,12 @@ const PRESET_LABEL: Record<QualityPreset, string> = {
   balanced: 'Balanced',
   crisp: 'Crisp',
   custom: 'Custom',
+  match: 'Match a score',
 };
+
+/** Similarity floors offered in "Match a score" mode (ADR-049). SSIM, 1 = identical. */
+const FIDELITY_FLOORS = [0.96, 0.98, 0.99] as const;
+const FIDELITY_DEFAULT = 0.98;
 
 function presetOf(quality: Record<OutputFormat, number>): QualityPreset {
   for (const [name, q] of Object.entries(QUALITY_PRESETS)) {
@@ -230,6 +235,10 @@ function ImageControls({
   disabled: boolean;
 }) {
   const patch = (p: Partial<ImageSettings>) => onChange({ ...settings, ...p });
+  // A size limit decides quality itself, so matching a score does not apply there.
+  const canMatch = settings.output !== 'target' && settings.output !== 'icons';
+  const matching = canMatch && settings.fidelity != null;
+  const preset: QualityPreset = matching ? 'match' : presetOf(settings.quality);
 
   return (
     <div className="grid gap-x-8 gap-y-2 p-5 @2xl:grid-cols-2">
@@ -239,14 +248,39 @@ function ImageControls({
           <Segmented
             name="quality-preset"
             label="Quality"
-            value={presetOf(settings.quality)}
-            onChange={(preset: QualityPreset) => {
-              if (preset !== 'custom') patch({ quality: { ...QUALITY_PRESETS[preset] } });
+            value={preset}
+            onChange={(next: QualityPreset) => {
+              if (next === 'match') patch({ fidelity: FIDELITY_DEFAULT });
+              else if (next === 'custom') patch({ fidelity: null });
+              else patch({ quality: { ...QUALITY_PRESETS[next] }, fidelity: null });
             }}
-            options={(['small', 'balanced', 'crisp', ...(presetOf(settings.quality) === 'custom' ? ['custom'] : [])] as QualityPreset[]).map(
-              (value) => ({ value, label: PRESET_LABEL[value] }),
-            )}
+            options={(
+              [
+                'small',
+                'balanced',
+                'crisp',
+                ...(!matching && presetOf(settings.quality) === 'custom' ? ['custom'] : []),
+                ...(canMatch ? ['match'] : []),
+              ] as QualityPreset[]
+            ).map((value) => ({ value, label: PRESET_LABEL[value] }))}
           />
+          {matching && (
+            <div className="mt-3">
+              <Segmented
+                name="fidelity"
+                label="Lowest similarity to keep"
+                value={String(settings.fidelity)}
+                onChange={(v: string) => patch({ fidelity: Number(v) })}
+                options={FIDELITY_FLOORS.map((f) => ({ value: String(f), label: f.toFixed(2) }))}
+              />
+              <p className="mt-2 text-xs text-muted">
+                For each image, Pare tries each format at several qualities and keeps the lowest
+                one whose result is at least this similar to the original, measured with SSIM
+                (1 means identical). Each saved file is then measured again, and any that falls
+                short is named. Slower: every image is test-encoded about eight times per format.
+              </p>
+            </div>
+          )}
         </div>
         <p className="eyebrow mb-1">Formats</p>
         {settings.output === 'icons' && (
@@ -271,7 +305,7 @@ function ImageControls({
                 min={1}
                 max={100}
                 value={settings.quality[format]}
-                disabled={!settings.formats[format]}
+                disabled={!settings.formats[format] || matching}
                 aria-label={FORMAT_LABEL[format] + ' quality'}
                 onChange={(e) =>
                   patch({ quality: { ...settings.quality, [format]: Number(e.target.value) } })
@@ -280,7 +314,7 @@ function ImageControls({
                 style={{ ['--fill' as string]: settings.quality[format] }}
               />
             </div>
-            {sample && settings.formats[format] && settings.output !== 'target' && (
+            {sample && settings.formats[format] && settings.output !== 'target' && !matching && (
               <div className="mt-1.5 pl-11">
                 <SizePreview
                   sample={sample}

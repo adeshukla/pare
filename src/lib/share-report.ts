@@ -59,7 +59,7 @@ footer { color: var(--muted); font-size: 13px; margin-top: 28px; }
 ${rows}
 </tbody>
 </table>
-<footer>"After" is what a visitor downloads: for an image offered in several formats, the smallest one a browser picks. Percentages are rounded down. Made with Pare, in the browser - no file was uploaded.</footer>
+<footer>"After" is what a visitor downloads: for an image offered in several formats, the smallest one a browser picks. Percentages are rounded down. ${entries.some((e) => e.note?.includes('similarity')) ? ' "Similarity" is SSIM: the saved file, decoded, compared with the original at the same size. 1 means identical; it is measured, never estimated, and rounded down.' : ''} Made with Pare, in the browser - no file was uploaded.</footer>
 </main>
 </body>
 </html>

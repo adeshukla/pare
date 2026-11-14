@@ -12,6 +12,12 @@ export type ImageSettings = {
   formats: Record<OutputFormat, boolean>;
   /** 1–100. Higher is bigger and better. Per format, because the scales differ. */
   quality: Record<OutputFormat, number>;
+  /**
+   * Null: the quality sliders decide. A number: each lossy format instead gets
+   * the lowest quality whose output scores at least this SSIM against the
+   * original (ADR-049), so every image gets the setting its content needs.
+   */
+  fidelity: number | null;
   /** Remove EXIF / XMP / comments. ICC colour profiles are always preserved. */
   stripMetadata: boolean;
   /** Emit a ThumbHash placeholder per image. */
@@ -55,6 +61,7 @@ export const DEFAULTS: ImageSettings = {
   // AVIF's quality scale is not WebP's and neither is JPEG's. These are the
   // visually-comparable points, not the same number three times.
   quality: { avif: 50, webp: 75, fallback: 75 },
+  fidelity: null,
   stripMetadata: true,
   thumbhash: true,
   sizes: '(max-width: 768px) 100vw, 50vw',

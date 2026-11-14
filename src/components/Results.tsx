@@ -6,6 +6,7 @@ import { bytes, reduction } from '../lib/format';
 import { locationRemoved, measure, type Row } from '../lib/optimize';
 import { Compare } from './Compare';
 import { FORMAT_LABEL } from '../lib/settings';
+import { formatSsim } from '../lib/ssim';
 import { FileThumb, Icon } from './Visuals';
 
 /**
@@ -94,18 +95,20 @@ function FormatBars({ row }: { row: Row }) {
   const full = outcome.variants.filter((v) => v.width === outcome.naturalWidth);
   if (full.length === 0) return null;
   const items = [
-    { label: 'Original', bytes: outcome.bytesBefore, original: true },
+    { label: 'Original', bytes: outcome.bytesBefore, original: true, ssim: undefined, quality: undefined },
     ...full.map((v) => ({
       label: v.format === 'fallback' ? 'Re-encoded' : FORMAT_LABEL[v.format],
       bytes: v.bytes.byteLength,
       original: false,
+      ssim: v.ssim,
+      quality: v.quality,
     })),
   ];
   const max = Math.max(...items.map((i) => i.bytes));
   return (
     <div className="grid gap-2" aria-label="Size of each format at full width">
       {items.map((item, i) => (
-        <div key={item.label} className="grid grid-cols-[84px_minmax(0,1fr)_72px] items-center gap-3 text-xs">
+        <div key={item.label} className="grid grid-cols-[84px_minmax(0,1fr)_72px] items-center sm:grid-cols-[84px_minmax(0,1fr)_72px_128px] gap-3 text-xs">
           <span className="text-muted">{item.label}</span>
           <span className="h-2.5 overflow-hidden rounded-full bg-rule">
             <i
@@ -120,6 +123,13 @@ function FormatBars({ row }: { row: Row }) {
             />
           </span>
           <span className="tnum text-right">{bytes(item.bytes)}</span>
+          <span
+            className="tnum hidden truncate text-muted sm:block"
+            title="SSIM: this file, decoded, compared with the original at the same size. 1 means identical."
+          >
+            {item.ssim !== undefined && <>similarity {formatSsim(item.ssim)}</>}
+            {item.quality !== undefined && <> · q{item.quality}</>}
+          </span>
         </div>
       ))}
     </div>

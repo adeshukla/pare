@@ -3,6 +3,7 @@ import { fromText, union, withSafetyFloor } from '../lib/codepoints';
 import { resolveWidths, scaledHeight } from '../lib/ladder';
 import { isAnimatedGif, stripMetadata } from '../lib/metadata';
 import { fitToSize } from '../lib/target';
+import { formatSsim, lowestQuality, ssim } from '../lib/ssim';
 import { minifyJson, minifyXml } from '../lib/data-minify';
 import { gifInfo, gifToAnimatedWebp } from '../lib/animated-webp';
 import { buildIco, iconManifest, ICON_SIZES, MASKABLE_FILL } from '../lib/icons';
@@ -115,6 +116,21 @@ async function encodeOne(
   if (format === 'avif') return encodeAvif(data, quality);
   if (format === 'webp') return encodeWebp(data, quality);
   return mime === 'image/png' ? encodePng(data) : encodeJpeg(data, quality);
+}
+
+/**
+ * SSIM of an encoded file against the pixels it was made from (ADR-049), by
+ * decoding the file the way a browser would. Undefined when it will not decode
+ * here; a missing score is shown as missing, never guessed.
+ */
+async function similarity(reference: ImageData, bytes: Uint8Array, mime: string): Promise<number | undefined> {
+  try {
+    const back = await decode(bytes, mime);
+    if (back.width !== reference.width || back.height !== reference.height) return undefined;
+    return ssim(reference, back);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Copy a rectangle out of an image. */
@@ -246,6 +262,7 @@ async function fitFormat(
     height: image.height,
     path: variantPath(path, image.width, outMime),
     bytes: data,
+    ssim: await similarity(image, data, outMime),
   };
 }
 
@@ -1015,6 +1032,48 @@ const api = {
     }
 
     const fbMime = fallbackMime(mime, source);
+    const mimeOf = (format: OutputFormat) => (format === 'fallback' ? fbMime : 'image/' + format);
+
+    // Match a score (ADR-049): per lossy format, the lowest quality that keeps
+    // the score, searched on a sample no wider than the slider preview so the
+    // search costs a few small encodes rather than several full-size ones.
+    // Every file made below is then measured itself; the sample only chooses.
+    const quality = { ...settings.quality };
+    const chosen = new Set<OutputFormat>();
+    const floor = settings.fidelity;
+    if (floor != null) {
+      const top = Math.max(...widths);
+      const sampleWidth = Math.min(PREVIEW_WIDTH, top);
+      let sample: ImageData | undefined;
+      try {
+        sample =
+          sampleWidth === source.width
+            ? source
+            : await resize(source, sampleWidth, scaledHeight(source.width, source.height, sampleWidth));
+      } catch {
+        base.warnings.push('Could not prepare a sample to choose the quality on, so the quality sliders were used.');
+      }
+      for (const format of formats) {
+        const outMime = mimeOf(format);
+        // PNG has no quality dial to choose.
+        if (!sample || outMime === 'image/png') continue;
+        onProgress(0.02, 'Choosing the ' + formatLabel(format) + ' quality');
+        try {
+          const probe = sample;
+          const found = await lowestQuality(
+            async (q) => (await similarity(probe, await encodeOne(probe, format, outMime, q), outMime)) ?? 0,
+            floor,
+          );
+          quality[format] = found.quality;
+          chosen.add(format);
+        } catch {
+          base.warnings.push(
+            'Could not choose a quality for the ' + formatLabel(format) + ' version, so its slider setting was used.',
+          );
+        }
+      }
+    }
+
     const total = widths.length * formats.length;
     const variants: Variant[] = [];
     let done = 0;
@@ -1031,10 +1090,10 @@ const api = {
       }
 
       for (const format of formats) {
-        const outMime = format === 'fallback' ? fbMime : 'image/' + format;
+        const outMime = mimeOf(format);
         onProgress(done / total, formatLabel(format) + ' at ' + width + 'px');
         try {
-          const encoded = await encodeOne(scaled, format, outMime, settings.quality[format]);
+          const encoded = await encodeOne(scaled, format, outMime, quality[format]);
           variants.push({
             format,
             mime: outMime,
@@ -1042,6 +1101,8 @@ const api = {
             height,
             path: variantPath(path, width, outMime),
             bytes: encoded,
+            ssim: await similarity(scaled, encoded, outMime),
+            quality: chosen.has(format) ? quality[format] : undefined,
           });
         } catch {
           base.warnings.push(
@@ -1058,6 +1119,20 @@ const api = {
 
     if (variants.length === 0) {
       return { ...base, skipped: 'Nothing could be encoded from this file. It was copied unchanged.' };
+    }
+
+    // Law 5: a score that was asked for and not met is said out loud.
+    if (floor != null) {
+      for (const format of chosen) {
+        const short = variants.filter((v) => v.format === format && v.ssim !== undefined && v.ssim < floor);
+        if (short.length === 0) continue;
+        const lowest = Math.min(...short.map((v) => v.ssim!));
+        base.warnings.push(
+          `The ${formatLabel(format)} at ${short.map((v) => v.width + 'px').join(', ')} scored ` +
+            `${formatSsim(lowest)}${short.length > 1 ? ' at lowest' : ''}, under the ${formatSsim(floor)} asked for, ` +
+            `at quality ${quality[format]}. Set that format's quality by hand if this image matters.`,
+        );
+      }
     }
 
     // Law 5: an "optimized" file that is bigger than the original is not a saving.
@@ -1078,6 +1153,9 @@ const api = {
       fullSize.bytes = stripped.bytes;
       fullSize.mime = mime;
       fullSize.path = variantPath(path, source.width, mime);
+      // The original itself, not an encode: there is nothing to score.
+      fullSize.ssim = undefined;
+      fullSize.quality = undefined;
       base.metadataRemoved = stripped.removed;
       base.warnings.push(
         'Re-encoding at full size made this file bigger, so the original was kept' +

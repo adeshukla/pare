@@ -7,6 +7,7 @@ import { poolSize, runAll } from './pool';
 import { defaultImgWidth } from './ladder';
 import { fontFaceSnippet } from './font-snippet';
 import { pictureSnippet } from './snippet';
+import { formatSsim } from './ssim';
 import type { FontSettings, ImageSettings, OutputFormat, TextSettings } from './settings';
 import type { Asset, FontOutcome, ImageOutcome, TextKind, TextOutcome, Variant } from './types';
 import type { Inspection } from '../workers/pipeline.worker';
@@ -107,10 +108,13 @@ export type Report = {
 export function measure(row: Row): { before: number; after?: number; detail: string } {
   const image = row.outcome;
   if (image) {
+    const served = image.skipped ? undefined : servedVariant(image);
+    const size = image.naturalWidth > 0 ? image.naturalWidth + '×' + image.naturalHeight : '';
     return {
       before: image.bytesBefore,
-      after: image.skipped ? image.bytesBefore : servedVariant(image)?.bytes.byteLength,
-      detail: image.naturalWidth > 0 ? image.naturalWidth + '×' + image.naturalHeight : '',
+      after: image.skipped ? image.bytesBefore : served?.bytes.byteLength,
+      // The score of the file a visitor downloads (ADR-049).
+      detail: served?.ssim !== undefined ? size + ' · similarity ' + formatSsim(served.ssim) : size,
     };
   }
 
@@ -338,7 +342,9 @@ export async function optimizeAssets(
   const split = enabled.length > 1 && assets.length < poolSize;
   // Width slices per format: as many as idle workers allow, at most three
   // (a ladder has five or six widths).
-  const slices = split ? Math.max(1, Math.min(3, Math.floor(poolSize / Math.max(1, images * enabled.length)))) : 1;
+  // Matching a score searches once per format job; width slices would each
+  // repeat that search, so they are not used then (ADR-049).
+  const slices = split && settings.image.fidelity == null ? Math.max(1, Math.min(3, Math.floor(poolSize / Math.max(1, images * enabled.length)))) : 1;
   // An animation is converted as a whole (ADR-038), and an icon set is made
   // from one picture (ADR-039), so neither is split.
   const splittable = (asset: Asset) =>

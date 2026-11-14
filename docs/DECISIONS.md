@@ -1314,3 +1314,39 @@ AVIF/WebP ladder. A drop made up entirely of HEIC now starts from that page's
 settings (one full-size JPEG each). A visitor who had already changed the
 output mode keeps their choice. Mixed drops are unchanged. Whole-site HEIC
 conversion stays off (ADR-026).
+
+## ADR-049 — Every encoded image carries a measured similarity score
+
+**Status:** accepted.
+
+**Problem.** Pare proved what an encode saved, never what it cost. The compare
+slider asks the visitor to judge artefacts by eye, and quality 50 means nothing
+on its own: the same setting is invisible on a photo and smears a screenshot.
+
+**Decision.** Every image variant Pare makes is decoded again in the worker and
+scored against the pixels it was made from, at the same size, with SSIM
+(brightness, 8×8 windows every 4 px, the 2004 paper's constants). The score is
+shown beside the file, in the compare view and in the shareable report, rounded
+down. It is a measurement of the file, never an estimate (Law 5), and no claim
+about how the page looks or performs is made from it. The original kept as-is
+(when re-encoding grew it) carries no score: nothing was encoded.
+
+A new quality option, **Match a score**, replaces the sliders with a floor
+(0.96, 0.98 or 0.99, default 0.98). For each lossy format Pare binary-searches
+quality 10-95 for the lowest whose output still meets the floor. The search
+runs on a sample no wider than 800 px, the slider-preview width, so it costs a
+handful of small encodes instead of full-size ones; the files actually saved
+are then each scored, and any that fall short are named in a warning with the
+score they got. PNG has no quality dial and is not searched. Size-limit and
+icon outputs keep their own rules and do not offer the option. Width slices
+(ADR-032) are not used in this mode, since each slice would repeat the search.
+
+**Why SSIM, written by hand.** It is the most widely published image-similarity
+measure, so a reader can look it up, and it is ~60 lines of arithmetic: no
+dependency, no WASM, nothing added to the initial bundle (it runs only in the
+worker). Butteraugli and DSSIM track the eye more closely but have no maintained
+browser build; either can replace this later behind the same field.
+
+**Cost.** One extra native decode and one SSIM pass per variant (tens of ms at
+2400 px). In Match mode, about eight preview-size encodes per lossy format per
+image before the real ones.
